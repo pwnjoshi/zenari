@@ -50,7 +50,7 @@ const ChatScreen = () => {
   const axiosCancelSourceRef = useRef(null);
 
   // Replace with your valid API key.
-  const API_KEY = 'AIzaSyC71zqfdneQpkrMNXRCHwkUqHTiZTLqo1M';
+  const API_KEY = 'API_KEY_DAALO';
   const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
   const emotionalSupportPrompt = {
