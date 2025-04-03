@@ -1,97 +1,116 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Zenari
 
-# Getting Started
+**AI Powered Emotional Wellness Companion**
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+Zenari is an AI-powered emotional wellness companion designed to support users in managing their mental health and well-being through intelligent interactions and personalized guidance.
 
-## Step 1: Start Metro
+## Features
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+- **Personalized Conversations**: Engage in meaningful dialogues tailored to your emotional state.
+- **Mood Tracking**: Monitor and analyze your mood over time to identify patterns.
+- **Mindfulness Exercises**: Access a library of guided exercises to enhance mindfulness.
+- **Resource Recommendations**: Receive suggestions for articles, videos, and activities based on your needs.
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+## Prerequisites
 
-```sh
-# Using npm
-npm start
+Before setting up the project, ensure you have the following installed:
 
-# OR using Yarn
-yarn start
+- **Node.js** (latest LTS version): [Download Node.js](https://nodejs.org/)
+- **npm** (comes with Node.js) or **Yarn**: [Yarn Installation Guide](https://yarnpkg.com/getting-started/install)
+- **React Native CLI** (optional):
+  ```bash
+  npm install -g react-native-cli
+  ```
+- **Android Studio** (for Android development): [Download Android Studio](https://developer.android.com/studio)
+- **Xcode** (for iOS development, macOS only): [Download Xcode](https://developer.apple.com/xcode/)
+
+## Getting Started
+
+Follow these steps to set up and run the project locally:
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/pwnjoshi/zenari.git
 ```
 
-## Step 2: Build and run your app
+### 2. Navigate to the Project Directory
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+```bash
+cd zenari
 ```
 
-### iOS
+### 3. Install Dependencies
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+Using npm:
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```bash
+npm install
 ```
 
-Then, and every time you update your native dependencies, run:
+Or using Yarn:
 
-```sh
-bundle exec pod install
+```bash
+yarn install
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+### 4. Start the Metro Bundler
 
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+```bash
+npx react-native start
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+### 5. Run the Application
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+For Android:
 
-## Step 3: Modify your app
+```bash
+npx react-native run-android
+```
 
-Now that you have successfully run the app, let's make changes!
+For iOS (macOS only):
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+```bash
+npx react-native run-ios
+```
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+## Contributing
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+We welcome contributions from the community. To contribute, follow these steps:
 
-## Congratulations! :tada:
+1. **Fork the Repository**: Click on the 'Fork' button at the top right of the repository page.
+2. **Clone Your Fork**:
+   ```bash
+   git clone https://github.com/your-username/zenari.git
+   ```
+3. **Create a New Branch**:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+4. **Make Your Changes**: Implement your feature or fix.
+5. **Commit Your Changes**:
+   ```bash
+   git add .
+   git commit -m "Add your commit message here"
+   ```
+6. **Push to Your Fork**:
+   ```bash
+   git push origin feature/your-feature-name
+   ```
+7. **Create a Pull Request**: Navigate to the original repository and click on 'New Pull Request'. Provide a clear description of your changes.
 
-You've successfully run and modified your React Native App. :partying_face:
+## Best Practices for Collaboration
 
-### Now what?
+- **Use Feature Branches**: Create a new branch for each feature or bugfix.
+- **Write Clear Commit Messages**: Provide concise and descriptive commit messages.
+- **Pull Before Pushing**: Always pull the latest changes from the main branch before pushing your changes.
+- **Code Reviews**: Participate in code reviews to maintain code quality and share knowledge.
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+## License
 
-# Troubleshooting
+This project is licensed under the [MIT License](LICENSE).
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+---
 
-# Learn More
+*Note: Ensure you have completed the [React Native Environment Setup](https://reactnative.dev/docs/environment-setup) before running the application.*
 
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
