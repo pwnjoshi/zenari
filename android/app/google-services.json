@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "1044794277231",
-    "project_id": "zenari-superapp",
-    "storage_bucket": "zenari-superapp.firebasestorage.app"
+    "project_number": "657227564246",
+    "project_id": "zenari-100",
+    "storage_bucket": "zenari-100.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1044794277231:android:f8f056a0f81813efd4fc9a",
+        "mobilesdk_app_id": "1:657227564246:android:43b6c76a878668c477b577",
         "android_client_info": {
           "package_name": "com.zenari"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAUOuZ1W4VtIYLgQSBcpN2rovSGznw4bfY"
+          "current_key": "AIzaSyBZeKhxzAAmMTIcHhE-So3YRTEq938rvqg"
         }
       ],
       "services": {

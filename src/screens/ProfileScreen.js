@@ -1,20 +1,21 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
+import auth from '@react-native-firebase/auth';
 
 const colors = {
-  primary: '#2bedbb',         // main accent color
-  primaryLight: '#a6f9e2',      // lighter version for gradients
-  primaryDark: '#1fcda9',       // darker version for contrast
-  background: '#E6F4F1',        // calm background base (you can adjust these too)
+  primary: '#2bedbb',
+  primaryLight: '#a6f9e2',
+  primaryDark: '#1fcda9',
+  background: '#E6F4F1',
   cardBackground: '#FFFFFF',
   textPrimary: '#2D5D5E',
   textSecondary: '#7A8D8E',
   progressBackground: 'rgba(255,255,255,0.3)',
 };
 
-const ProfileScreen = () => {
+const ProfileScreen = ({ navigation }) => {
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(true);
   const [currentPoints, setCurrentPoints] = useState(2450);
@@ -25,6 +26,30 @@ const ProfileScreen = () => {
     { id: 3, name: 'Zen Master', icon: 'leaf', progress: 30, earned: false },
     { id: 4, name: 'Night Owl', icon: 'moon-waxing-crescent', progress: 45, earned: true },
   ];
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Confirm Logout',
+      'Are you sure you want to log out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        { 
+          text: 'Log Out', 
+          onPress: async () => {
+            try {
+              await auth().signOut();
+              navigation.navigate('Auth');
+            } catch (error) {
+              Alert.alert('Logout Error', error.message);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   return (
     <LinearGradient 
@@ -113,6 +138,16 @@ const ProfileScreen = () => {
           <TouchableOpacity style={styles.settingItem}>
             <Icon name="account-edit" size={24} color={colors.primary} />
             <Text style={styles.settingText}>Edit Profile</Text>
+            <Icon name="chevron-right" size={24} color="#C0C0C0" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Account Section */}
+        <Text style={styles.sectionTitle}>Account</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.settingItem} onPress={handleLogout}>
+            <Icon name="logout" size={24} color="#FF6B6B" />
+            <Text style={[styles.settingText, { color: '#FF6B6B' }]}>Log Out</Text>
             <Icon name="chevron-right" size={24} color="#C0C0C0" />
           </TouchableOpacity>
         </View>

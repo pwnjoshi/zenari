@@ -7,7 +7,7 @@ import {
   Dimensions,
   ScrollView
 } from 'react-native';
-import FastImage from 'react-native-fast-image';
+import { Image } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
@@ -63,7 +63,7 @@ const HomeScreen = () => {
 
   return (
     <View style={styles.container}>
-      <FastImage
+      <Image
         source={require('../assets/new.gif')}
         style={styles.background}
         resizeMode="cover"
@@ -263,5 +263,4 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
 });
-
 export default HomeScreen;
