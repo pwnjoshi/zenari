@@ -1,25 +1,28 @@
 // RootNavigation.js
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import {
     View,
     Text,
     StyleSheet,
     ActivityIndicator,
-    TouchableOpacity
+    TouchableOpacity,
+    Platform // Import Platform
 } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createStackNavigator } from '@react-navigation/stack';
-// Remove useNavigation and useNavigationState from here if ONLY used in CustomBottomNav
-// import { useNavigation, useNavigationState } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 
+// --- Firebase ---
+import firestore from '@react-native-firebase/firestore';
+
 // --- Auth Context ---
+// *** IMPORTANT: Verify this path is correct for your project structure ***
 import { AuthContext } from './screens/AuthProvider';
 
 // --- Screens ---
-// (Keep all your screen imports here)
+// *** IMPORTANT: Verify these paths are correct for your project structure ***
 import AuthScreens from './screens/AuthScreens';
 import HomeScreen from './screens/HomeScreen';
 import ChatWelcomeScreen from './screens/ChatWelcomeScreen';
@@ -33,10 +36,9 @@ import Resources from './screens/Resources';
 import SoundTherapy from './screens/SoundTherapy';
 import VoiceModeAI from './screens/VoiceModeAI';
 import JournalAI from './screens/JournalAI';
-
+import UserInfoScreen from './screens/UserInfoScreen';
 
 // --- Colors ---
-// (Keep your colors object here)
 const colors = {
     primary: '#2bedbb',
     primaryDark: '#1AA897',
@@ -53,31 +55,35 @@ const colors = {
     white: '#FFFFFF',
     iconGrey: '#607D8B',
     lightBorder: '#E0E0E0',
+    // Pastel colors (if used for UserInfoScreen theme)
+    backgroundPastelTop: '#E0F7FA',
+    backgroundPastelBottom: '#FFF9C4',
+    primaryPastel: '#FFCCBC',
+    primaryDarkPastel: '#FFA68A',
+    textPrimaryPastel: '#5D4037',
+    textSecondaryPastel: '#A1887F',
+    error: '#D32F2F', // Added from UserInfoScreen styles
+    inputBackground: '#FFFFFF', // Added from UserInfoScreen styles
+    inputBorder: '#E0E0E0', // Added from UserInfoScreen styles
+    radioSelected: '#FFAB91', // Added from UserInfoScreen styles
+    radioUnselectedBorder: '#BDBDBD', // Added from UserInfoScreen styles
 };
 
 
 // --- Navigation Setup ---
 const Tab = createBottomTabNavigator();
-const Stack = createNativeStackNavigator();
-const RootStack = createStackNavigator();
+const AppStackNav = createNativeStackNavigator(); // Using Native Stack for App screens
+const RootStack = createStackNavigator(); // Using Stack for root (allows customization if needed later)
 
-// --- Custom Bottom Navigation (Updated Version from above) ---
-const CustomBottomNav = ({ state, descriptors, navigation }) => { // Accept props
-
-    // Helper function to find the deepest active route name
+// --- Custom Bottom Navigation ---
+const CustomBottomNav = ({ state, descriptors, navigation }) => {
     const getCurrentRouteName = (navState) => {
         if (!navState) return null;
         const route = navState.routes[navState.index];
-        // Dive into nested navigators if needed (though MainTabs seems flat here)
-        if (route.state) {
-            return getCurrentRouteName(route.state);
-        }
+        if (route.state) { return getCurrentRouteName(route.state); }
         return route.name;
     };
-
-    // Get the current route name from the passed-in state prop
     const currentRouteName = getCurrentRouteName(state);
-
     const tabs = [
         { name: 'DiscoverTab', label: 'Discover', icon: 'compass', targetScreen: 'HomeScreen' },
         { name: 'ChatTab', label: 'Chat', icon: 'chatbubbles', targetScreen: 'ChatWelcomeScreen' },
@@ -85,63 +91,27 @@ const CustomBottomNav = ({ state, descriptors, navigation }) => { // Accept prop
         { name: 'JournalTab', label: 'Journal', icon: 'book', targetScreen: 'JournalAI' },
         { name: 'SoundTab', label: 'Sound', icon: 'musical-notes', targetScreen: 'SoundTherapy' },
     ];
-
-    // Determine if a tab's target screen is the current active screen
     const isActive = (screenName) => currentRouteName === screenName;
 
     return (
         <View style={styles.bottomNavContainer}>
             <View style={styles.bottomNav}>
                 {tabs.map((tab) => {
-                    // Check if the current tab's target screen is active
                     const active = isActive(tab.targetScreen);
                     const iconColor = active ? colors.primary : colors.inactive;
                     const labelColor = active ? colors.primary : colors.textSecondary;
-
-                    // --- Get accessibility props if needed (optional but good practice) ---
-                    // const { options } = descriptors[tab.targetScreen]; // Might need adjustments if targetScreen isn't a direct key in descriptors
-                    // const accessibilityLabel = options.tabBarAccessibilityLabel !== undefined
-                    //     ? options.tabBarAccessibilityLabel
-                    //     : `${tab.label}, tab`;
-                    // const accessibilityRole = 'button'; // Standard role for tab buttons
-
                     if (tab.isCentral) {
                         return (
-                            <TouchableOpacity
-                                key={tab.name}
-                                style={styles.centralNavButtonWrapper}
-                                // Use the navigation prop passed to the component
-                                onPress={() => navigation.navigate(tab.targetScreen)}
-                                activeOpacity={0.8}
-                                // accessibilityRole={accessibilityRole}
-                                // accessibilityLabel={`Maps to ${tab.label}`} // Specific label for central button
-                            >
-                                <LinearGradient
-                                    colors={[colors.primary, colors.primaryDark]}
-                                    style={styles.centralNavButton}
-                                >
+                            <TouchableOpacity key={tab.name} style={styles.centralNavButtonWrapper} onPress={() => navigation.navigate(tab.targetScreen)} activeOpacity={0.8} >
+                                <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.centralNavButton} >
                                     <Ionicons name={`${tab.icon}-outline`} size={28} color={colors.white} />
                                 </LinearGradient>
                             </TouchableOpacity>
                         );
                     }
-
                     return (
-                        <TouchableOpacity
-                            key={tab.name}
-                            style={styles.navButtonContainer}
-                            // Use the navigation prop passed to the component
-                            onPress={() => navigation.navigate(tab.targetScreen)}
-                            activeOpacity={0.7}
-                            // accessibilityRole={accessibilityRole}
-                            // accessibilityState={active ? { selected: true } : {}}
-                            // accessibilityLabel={accessibilityLabel}
-                        >
-                            <Ionicons
-                                name={`${tab.icon}${active ? '' : '-outline'}`}
-                                size={26}
-                                color={iconColor}
-                            />
+                        <TouchableOpacity key={tab.name} style={styles.navButtonContainer} onPress={() => navigation.navigate(tab.targetScreen)} activeOpacity={0.7} >
+                            <Ionicons name={`${tab.icon}${active ? '' : '-outline'}`} size={26} color={iconColor} />
                             <Text style={[styles.navLabel, { color: labelColor }]}>{tab.label}</Text>
                         </TouchableOpacity>
                     );
@@ -152,49 +122,52 @@ const CustomBottomNav = ({ state, descriptors, navigation }) => { // Accept prop
 };
 
 // --- Main Tabs ---
-// (Keep MainTabs component as it was)
 const MainTabs = () => (
     <Tab.Navigator
-        // Use the custom component for the tab bar UI
         tabBar={(props) => <CustomBottomNav {...props} />}
-        screenOptions={{ headerShown: false }} // Hide default header for tab screens
+        screenOptions={{ headerShown: false }}
     >
-        {/* Define screens available within the tab navigator */}
         <Tab.Screen name="HomeScreen" component={HomeScreen} />
         <Tab.Screen name="ChatWelcomeScreen" component={ChatWelcomeScreen} />
-        {/* VoiceModeAI is handled by the central button, hide default tab bar button */}
         <Tab.Screen name="VoiceModeAI" component={VoiceModeAI} options={{ tabBarButton: () => null }} />
         <Tab.Screen name="JournalAI" component={JournalAI} />
         <Tab.Screen name="SoundTherapy" component={SoundTherapy} />
     </Tab.Navigator>
 );
 
-// --- App Stack ---
-// (Keep AppStack component as it was)
+// --- App Stack (Holds Main Tabs and other screens accessible after login) ---
 const AppStack = () => (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {/* MainTabs is the entry point containing the bottom navigation */}
-        <Stack.Screen name="MainTabs" component={MainTabs} />
-        {/* Other screens navigable from within the app */}
-        <Stack.Screen name="Doctors" component={Doctors} />
-        <Stack.Screen name="ConnectDoctor" component={ConnectDoctor} />
-        <Stack.Screen name="ChatScreen" component={ChatScreen} />
-        <Stack.Screen name="MindfulBreath" component={MindfulBreath} />
-        <Stack.Screen name="Resources" component={Resources} />
-        <Stack.Screen name="MoodTrackerScreen" component={MoodTrackerScreen} />
-        <Stack.Screen name="ProfileScreen" component={ProfileScreen} />
-    </Stack.Navigator>
+    <AppStackNav.Navigator screenOptions={{ headerShown: false }}>
+        <AppStackNav.Screen name="MainTabs" component={MainTabs} />
+        <AppStackNav.Screen name="Doctors" component={Doctors} />
+        <AppStackNav.Screen name="ConnectDoctor" component={ConnectDoctor} />
+        <AppStackNav.Screen name="ChatScreen" component={ChatScreen} />
+        <AppStackNav.Screen name="MindfulBreath" component={MindfulBreath} />
+        <AppStackNav.Screen name="Resources" component={Resources} />
+        <AppStackNav.Screen name="MoodTrackerScreen" component={MoodTrackerScreen} />
+        <AppStackNav.Screen name="ProfileScreen" component={ProfileScreen} />
+    </AppStackNav.Navigator>
 );
 
+// --- Loading Screen Component ---
+const LoadingIndicatorScreen = () => (
+    <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+    </View>
+);
+// --------------------------------
 
-// --- Root Navigation ---
-// (Keep RootNavigation component as it was)
+// --- Root Navigation (Handles Auth Flow and User Info Check) ---
 const RootNavigation = () => {
     const authContext = useContext(AuthContext);
+    // State: 'checking', 'incomplete', 'complete'
+    const [profileStatus, setProfileStatus] = useState('checking');
+    // Combined loading state for auth check AND profile check
+    const [internalLoading, setInternalLoading] = useState(true);
 
-    // Defensive check for AuthContext
+    // Defensive check for AuthContext provider
     if (!authContext) {
-        console.error("AuthContext is not available. Make sure RootNavigation is wrapped in AuthProvider.");
+        console.error("AuthContext is not available. Wrap RootNavigation in AuthProvider.");
         return (
             <View style={styles.loadingContainer}>
                 <Text style={{ color: 'red' }}>Error: AuthProvider missing!</Text>
@@ -202,26 +175,109 @@ const RootNavigation = () => {
         );
     }
 
-    const { user, loading } = authContext;
+    const { user, loading: authLoading } = authContext;
 
-    // Show loading indicator while checking auth state
-    if (loading) {
-        return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={colors.primary} />
-            </View>
-        );
+    // --- Effect 1: Handles Auth State Changes and sets up for profile check ---
+    useEffect(() => {
+        console.log(`Auth Effect Triggered: authLoading=${authLoading}, user=${!!user}`);
+        if (authLoading) {
+            setInternalLoading(true);
+            setProfileStatus('checking');
+        } else if (!user) {
+            setInternalLoading(false);
+            setProfileStatus('checking');
+        } else {
+            setInternalLoading(true);
+            setProfileStatus('checking');
+        }
+    }, [user, authLoading]); // Runs when auth state changes
+
+
+    // --- Effect 2: Performs the Profile Check when status is 'checking' ---
+    useEffect(() => {
+        if (!authLoading && user && profileStatus === 'checking') {
+            console.log("Profile Check Effect Triggered: Checking Firestore...");
+            setInternalLoading(true); // Ensure loading indicator shows during check
+
+            const checkUserProfile = async () => {
+                try {
+                    const userId = user.uid;
+                    const userDoc = await firestore()
+                        .collection('users')
+                        .doc(userId)
+                        .get();
+
+                    if (userDoc.exists) {
+                        const data = userDoc.data();
+                        // *** Adjust field names 'fullName' and 'gender' if necessary ***
+                        if (data && data.fullName && data.fullName.trim() !== '' && data.gender) {
+                            console.log("Firestore Check Result: Profile Complete.");
+                            setProfileStatus('complete');
+                        } else {
+                            console.log("Firestore Check Result: Profile Incomplete.", data);
+                            setProfileStatus('incomplete');
+                        }
+                    } else {
+                        console.log("Firestore Check Result: User document doesn't exist.");
+                        setProfileStatus('incomplete'); // Needs profile info
+                    }
+                } catch (error) {
+                    console.error("Firestore Check Error:", error);
+                    setProfileStatus('incomplete'); // Assume incomplete on error
+                } finally {
+                    console.log("Profile check finished, setting internalLoading=false");
+                    setInternalLoading(false); // Check finished
+                }
+            };
+            checkUserProfile();
+        } else if (!authLoading && user && profileStatus !== 'checking') {
+            // If status is already determined, ensure loading is false.
+             if (internalLoading) {
+                 console.log(`Profile Check Effect: Status is ${profileStatus}, ensuring loading is false.`);
+                 setInternalLoading(false);
+             }
+        }
+        // This effect depends on profileStatus to run when the callback triggers a re-check
+    }, [user, authLoading, profileStatus]); // Runs when auth state or profileStatus changes
+
+
+    // --- Render Logic ---
+
+    // Show loading indicator until internalLoading is false
+    if (internalLoading) {
+       console.log("Rendering: Loading Screen (internalLoading=true)");
+       return <LoadingIndicatorScreen />;
     }
 
-    // Conditionally render Auth or App stack based on user login status
+    console.log(`Rendering: user=${!!user}, profileStatus=${profileStatus}`);
+
+    // Render the appropriate stack based on auth and profile status
     return (
         <RootStack.Navigator screenOptions={{ headerShown: false }}>
-            {user ? (
-                // User is logged in, show the main app stack
+            {!user ? (
+                // --- User Not Logged In ---
+                <RootStack.Screen name="Auth" component={AuthScreens} />
+            ) : profileStatus === 'incomplete' ? (
+                // --- User Logged In, Profile Incomplete ---
+                 <RootStack.Screen name="UserInfo">
+                     {(props) => ( // props from react-navigation (includes navigation, route)
+                         <UserInfoScreen
+                             {...props} // Pass navigation/route props down
+                             // Define the callback function to be called from UserInfoScreen
+                             onProfileComplete={() => {
+                                 console.log("onProfileComplete triggered in RootNavigation. Re-checking profile...");
+                                 setProfileStatus('checking'); // Set status back to checking
+                                 setInternalLoading(true);     // Show loading indicator during re-check
+                             }}
+                         />
+                     )}
+                 </RootStack.Screen>
+            ) : profileStatus === 'complete' ? (
+                // --- User Logged In, Profile Complete ---
                 <RootStack.Screen name="App" component={AppStack} />
             ) : (
-                // User is not logged in, show the authentication screens
-                <RootStack.Screen name="Auth" component={AuthScreens} />
+                 // --- Fallback/Checking State --- (Should ideally be covered by internalLoading)
+                 <RootStack.Screen name="FallbackLoading" component={LoadingIndicatorScreen} />
             )}
         </RootStack.Navigator>
     );
@@ -229,7 +285,6 @@ const RootNavigation = () => {
 
 
 // --- Styles ---
-// (Keep styles object as it was)
 const styles = StyleSheet.create({
     loadingContainer: {
         flex: 1,
@@ -238,11 +293,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.backgroundTop, // Use a background color
     },
     bottomNavContainer: {
-        // Removed absolute positioning to let it flow naturally with Tab.Navigator
-        // position: 'absolute',
-        // bottom: 0,
-        // left: 0,
-        // right: 0,
+        // No absolute positioning needed when used with tabBar prop
     },
     bottomNav: {
         backgroundColor: colors.navBackground,
@@ -250,7 +301,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-around',
         alignItems: 'center',
         paddingVertical: 8,
-        paddingBottom: 10, // Adjust as needed for safe areas potentially
+        paddingBottom: Platform.OS === 'ios' ? 25 : 10, // Adjust padding for safe area notch
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         shadowColor: '#000',
@@ -258,7 +309,7 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.08,
         shadowRadius: 6,
         elevation: 8, // For Android shadow
-        borderTopWidth: 1, // Use a subtle border instead of/with shadow
+        borderTopWidth: 1,
         borderTopColor: colors.lightBorder,
     },
     navButtonContainer: {
@@ -277,20 +328,18 @@ const styles = StyleSheet.create({
         // No marginTop needed here, positioning handled by the button itself
     },
     centralNavButton: {
-      width: 60,
-      height: 60,
-      borderRadius: 30, // Perfect circle
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginTop: -35, // Pulls the button up
-      // --- Remove or comment out these lines ---
-      // shadowColor: '#000',
-      // shadowOffset: { width: 0, height: 2 },
-      // shadowOpacity: 0.2,
-      // shadowRadius: 4,
-      // elevation: 5,
-      // --- End of lines to remove/comment ---
-  },
+        width: 60,
+        height: 60,
+        borderRadius: 30, // Perfect circle
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: -35, // Pulls the button up
+        elevation: 0, // Add some elevation for the central button if desired
+        shadowColor: '#000', // Optional shadow for central button
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 3,
+    },
 });
 
 

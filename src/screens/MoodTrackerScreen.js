@@ -165,7 +165,7 @@ const MoodTrackerScreen = ({ navigation }) => {
 
     // --- Configuration Flags ---
     // *** Set to false to use Firestore data, true to use DEMO data ***
-    const USE_DEMO_DATA = true; // <<<<----- ENSURES FIRESTORE DATA IS USED
+    const USE_DEMO_DATA = false; // <<<<----- ENSURES FIRESTORE DATA IS USED
     // ---------------------------
 
     // --- Memoized Demo Data ---
