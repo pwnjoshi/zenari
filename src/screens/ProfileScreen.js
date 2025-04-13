@@ -50,7 +50,11 @@ const ProfileScreen = ({ navigation }) => {
       ]
     );
   };
-
+  
+  // Function to handle profile icon press and navigate to ProfileScreen
+  const handleProfileNavigation = () => {
+    navigation.navigate('ProfileScreen');
+  };
   return (
     <LinearGradient 
       colors={[colors.background, '#D1E5E0', '#B7D5CF']} 
