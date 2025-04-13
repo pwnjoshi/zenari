@@ -1475,7 +1475,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.10,
         shadowRadius: 2.22,
-        elevation: 2, // Android shadow
+        elevation: 0, // Android shadow
     },
     sectionTitle: {
         fontSize: 18,
@@ -1716,7 +1716,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.25,
         shadowRadius: 4,
-        elevation: 5, // Android shadow
+        elevation: 0, // Android shadow
     },
     modalTitle: {
         fontSize: 18,
