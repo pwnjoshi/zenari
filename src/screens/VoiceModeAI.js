@@ -1,350 +1,172 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { 
-  View, 
-  TextInput, 
-  FlatList, 
-  StyleSheet, 
-  KeyboardAvoidingView, 
-  Platform, 
-  Dimensions
+import React, { useState } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    ImageBackground,
+    Platform,
+    StatusBar, // To potentially adjust status bar style
 } from 'react-native';
-import { Button } from 'react-native-paper';
-import axios from 'axios';
-import RenderHTML from 'react-native-render-html';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SafeAreaView } from 'react-native-safe-area-context'; // Handles notches/status bars
+import Icon from 'react-native-vector-icons/Ionicons';
+import LottieView from 'lottie-react-native'; // For placeholder animation
+import { useNavigation } from '@react-navigation/native'; // If navigation is needed
 
-const { width } = Dimensions.get('window');
-
+// --- Placeholder Colors (Adjust to match your new.gif and theme) ---
 const colors = {
-  primary: '#2bedbb',         // main accent color
-  primaryLight: '#a6f9e2',      // lighter variant for subtle accents
-  primaryDark: '#1fcda9',       // darker variant for contrast
-  background: '#F0F8FF',        // calm background color
-  userBubble: '#a6f9e2',        // using primaryLight for user messages
-  botBubble: '#d0fce9',         // a custom light tint for bot messages
-  messageText: '#2C3E50',       // dark text for readability
-  inputBackground: '#F4F6F7',   // input field background
+    backgroundOverlay: 'rgba(25, 50, 100, 0.1)', // Slight overlay tint if needed over GIF
+    textPrimary: '#FFFFFF', // White text usually works well on dark/dynamic backgrounds
+    textSecondary: '#E0E0E0', // Lighter white/grey
+    micButtonBackground: '#FFFFFF',
+    micButtonIcon: '#3B82F6', // Example: Blue icon
+    micButtonRipple: 'rgba(59, 130, 246, 0.2)', // Ripple effect color
+    iconColor: '#FFFFFF',
 };
+// -------------------------------------------------------------------
 
-const useAutoScroll = (flatListRef, messages) => {
-  useEffect(() => {
-    if (flatListRef.current) {
-      flatListRef.current.scrollToEnd({ animated: true });
-    }
-  }, [messages, flatListRef]);
-};
+const VoiceModeAIScreen = () => {
+    const navigation = useNavigation(); // Hook for navigation actions
+    const [isListening, setIsListening] = useState(false);
+    const [statusText, setStatusText] = useState('Tap the mic to start');
 
-const ChatScreen = () => {
-  const [messages, setMessages] = useState([
-    {
-      text: "🌸 Hi there, dear friend! I'm here to listen and support you. How are you feeling today?",
-      sender: 'bot'
-    }
-  ]);
-  const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isBotTyping, setIsBotTyping] = useState(false);
-
-  const flatListRef = useRef(null);
-  const typingIntervalRef = useRef(null);
-  const axiosCancelSourceRef = useRef(null);
-
-  // Replace with your valid API key.
-  const API_KEY = 'AIzaSyC71zqfdneQpkrMNXRCHwkUqHTiZTLqo1M';
-  const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-
-  const emotionalSupportPrompt = {
-    role: 'assistant',
-    parts: [{
-      text: `Act as an emotional support companion. Be compassionate, validate feelings, 
-      offer gentle encouragement. Use empathetic responses, ask open-ended questions,
-      and suggest coping strategies when appropriate. Maintain a hopeful tone with 
-      occasional uplifting emojis.`
-    }]
-  };
-
-  useEffect(() => {
-    const loadMoodHistory = async () => {
-      try {
-        const storedHistory = await AsyncStorage.getItem('@moodHistory');
-        // You can integrate the mood history if needed.
-      } catch (error) {
-        console.error('Error loading mood history:', error);
-      }
+    const handleMicPress = () => {
+        setIsListening(prev => !prev);
+        setStatusText(prev => prev === 'Listening...' ? 'Tap the mic to start' : 'Listening...');
+        // In a real app: Start/Stop voice recognition here
     };
-    loadMoodHistory();
-  }, []);
 
-  useAutoScroll(flatListRef, messages);
+    return (
+        <View style={styles.container}>
+             {/* Set status bar style appropriate for the background */}
+            <StatusBar barStyle="light-content" />
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim() || isLoading) return;
+            <ImageBackground
+                // *** Adjust the path to your new.gif file ***
+                source={require('../assets/new.gif')} // Example path
+                resizeMode="cover" // Cover ensures the GIF fills the screen
+                style={styles.backgroundImage}
+            >
+                {/* Optional overlay for better text readability */}
+                <View style={styles.overlay}>
 
-    // Add new user message.
-    const userMessage = { text: inputText, sender: 'user' };
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
-    setInputText('');
-    setIsLoading(true);
+                    {/* Use SafeAreaView to avoid overlapping with status bar/notches */}
+                    <SafeAreaView style={styles.safeArea}>
 
-    // Create a cancel token for this request.
-    axiosCancelSourceRef.current = axios.CancelToken.source();
+                        {/* Header with Back Button */}
+                        <View style={styles.header}>
+                            <TouchableOpacity
+                                style={styles.backButton}
+                                onPress={() => navigation.goBack()} // Go back action
+                            >
+                                <Icon name="arrow-back-outline" size={30} color={colors.iconColor} />
+                            </TouchableOpacity>
+                        </View>
 
-    try {
-      // Build conversation history.
-      const conversationHistory = newMessages.map(msg => ({
-        role: msg.sender === 'user' ? 'user' : 'assistant',
-        parts: [{ text: msg.text }],
-      }));
+                        {/* Main Content Area */}
+                        <View style={styles.contentArea}>
+                            {/* Placeholder for Central Visualizer/Animation */}
+                            <LottieView
+                                // Replace with a calming animation URL or local file
+                                source={{ uri: 'https://assets3.lottiefiles.com/packages/lf20_1vbfj9zz.json' }} // Example: Sound wave/orb
+                                style={styles.lottieVisualizer}
+                                autoPlay
+                                loop
+                            />
 
-      const payload = {
-        contents: [emotionalSupportPrompt, ...conversationHistory],
-        safetySettings: [{
-          category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-          threshold: 'BLOCK_ONLY_HIGH'
-        }],
-        generationConfig: {
-          temperature: 0.85,
-          topP: 0.75,
-          maxOutputTokens: 1024
-        }
-      };
+                            {/* Status Text */}
+                            <Text style={styles.statusText}>{statusText}</Text>
+                        </View>
 
-      console.log("Payload:", JSON.stringify(payload, null, 2));
+                        {/* Footer with Mic Button */}
+                        <View style={styles.footer}>
+                            <TouchableOpacity
+                                style={styles.micButton}
+                                onPress={handleMicPress}
+                                activeOpacity={0.7}
+                            >
+                                <Icon
+                                   name={isListening ? "mic-off-outline" : "mic-outline"} // Toggle icon
+                                   size={38}
+                                   color={colors.micButtonIcon} />
+                            </TouchableOpacity>
+                        </View>
 
-      const response = await axios.post(`${API_URL}?key=${API_KEY}`, payload, {
-        headers: { "Content-Type": "application/json" },
-        cancelToken: axiosCancelSourceRef.current.token
-      });
-
-      const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-        "I'm here to listen. Please share more about how you're feeling. 💞";
-      const enhanced = enhanceResponse(rawText);
-      setMessages(prev => [...prev, { text: enhanced, sender: 'bot' }]);
-      simulateTypingEffect(enhanced);
-    } catch (error) {
-      if (axios.isCancel(error)) {
-        console.log('Request cancelled:', error.message);
-      } else {
-        console.error('API Error:', error.response?.data || error);
-        setMessages(prev => [...prev, {
-          text: "🌼 Let's try that again. Please share what's on your mind.",
-          sender: 'bot'
-        }]);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const enhanceResponse = (text) => {
-    let enhanced = text
-      .replace(/\b(happy|joyful)\b/gi, '$1 😊')
-      .replace(/\b(sad|upset)\b/gi, '$1 😔')
-      .replace(/\b(thank you|thanks)\b/gi, '$1 💖')
-      .replace(/\b(love|care)\b/gi, '$1 ❤️')
-      .replace(/\b(hope|wish)\b/gi, '$1 🌟')
-      .replace(/\b(strength|courage)\b/gi, '$1 💪');
-
-    const closings = [
-      "\n\n💖 Remember: You're stronger than you know!",
-      "\n\n🌸 Growth comes one step at a time",
-      "\n\n🌟 Your feelings are valid and important",
-      "\n🌼 Be gentle with yourself today"
-    ];
-    
-    if (enhanced.split(' ').length > 15) {
-      enhanced += closings[Math.floor(Math.random() * closings.length)];
-    }
-    return enhanced;
-  };
-
-  const simulateTypingEffect = (text) => {
-    setIsBotTyping(true);
-    let index = 0;
-    // Clear any existing interval if present.
-    if (typingIntervalRef.current) {
-      clearInterval(typingIntervalRef.current);
-    }
-    typingIntervalRef.current = setInterval(() => {
-      setMessages(prev => {
-        const newMsgs = [...prev];
-        const lastMsg = newMsgs[newMsgs.length - 1];
-        if (lastMsg?.sender === 'bot') {
-          lastMsg.text = text.slice(0, index + 1);
-        }
-        return newMsgs;
-      });
-      if (++index === text.length) {
-        clearInterval(typingIntervalRef.current);
-        typingIntervalRef.current = null;
-        setIsBotTyping(false);
-      }
-    }, 20);
-  };
-
-  const parseText = (text) => {
-    try {
-      return text
-        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-        .replace(/\*(.*?)\*/g, '<i>$1</i>')
-        .replace(/__(.*?)__/g, '<u>$1</u>')
-        .replace(/\[!(.*?)\]/g, '<span style="color:#2A5298;">$1</span>')
-        .replace(/\n/g, '<br/>');
-    } catch (error) {
-      console.error('Error parsing text:', error);
-      return text;
-    }
-  };
-
-  const handleNewChat = () => {
-    // Cancel any ongoing axios request.
-    if (axiosCancelSourceRef.current) {
-      axiosCancelSourceRef.current.cancel('New chat started, cancelling previous request');
-      axiosCancelSourceRef.current = null;
-    }
-    // Clear any ongoing typing interval.
-    if (typingIntervalRef.current) {
-      clearInterval(typingIntervalRef.current);
-      typingIntervalRef.current = null;
-    }
-    // Reset states.
-    setMessages([{
-      text: "🌷 Welcome back! I'm here whenever you need to talk. How can I support you today?",
-      sender: 'bot'
-    }]);
-    setInputText('');
-    setIsLoading(false);
-    setIsBotTyping(false);
-  };
-
-  const renderItem = ({ item }) => (
-    <View style={[
-      styles.messageBubble,
-      item.sender === 'user' ? styles.userBubble : styles.botBubble
-    ]}>
-      <RenderHTML
-        contentWidth={width * 0.7}
-        source={{ html: parseText(item.text) }}
-        baseStyle={styles.messageText}
-      />
-    </View>
-  );
-
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-    >
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(_, i) => i.toString()}
-        renderItem={renderItem}
-        contentContainerStyle={{ paddingBottom: 80 }}
-      />
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Message here..."
-          value={inputText}
-          onChangeText={setInputText}
-          onSubmitEditing={handleSendMessage}
-          editable={!isLoading && !isBotTyping}
-          multiline
-          placeholderTextColor="#888"
-        />
-        <View style={styles.buttonContainer}>
-          <Button
-            mode="contained"
-            onPress={handleSendMessage}
-            loading={isLoading}
-            disabled={isLoading || isBotTyping}
-            style={styles.sendButton}
-            labelStyle={{ color: 'white' }}
-          >
-            Send
-          </Button>
-          <Button
-            mode="outlined"
-            onPress={handleNewChat}
-            style={styles.clearButton}
-            labelStyle={{ color: colors.primary }}
-          >
-            Clear
-          </Button>
+                    </SafeAreaView>
+                </View>
+            </ImageBackground>
         </View>
-      </View>
-    </KeyboardAvoidingView>
-  );
+    );
 };
 
+// --- Styles ---
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  messageBubble: {
-    maxWidth: '80%',
-    padding: 14,
-    borderRadius: 20,
-    marginVertical: 8,
-    marginHorizontal: 16,
-  },
-  userBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: colors.userBubble,
-  },
-  botBubble: {
-    marginTop: 15,
-    alignSelf: 'flex-start',
-    backgroundColor: colors.botBubble,
-    marginBottom: 0,
-  },
-  messageText: {
-    fontSize: 16,
-    color: colors.messageText,
-    lineHeight: 22,
-    padding: 8,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    padding: 12,
-    backgroundColor: '#FFFFFF',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: '#ccc',
-    marginBottom: 0,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: colors.inputBackground,
-    borderRadius: 20,
-    marginRight: 12,
-    minHeight: 45,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  sendButton: {
-    borderRadius: 24,
-    backgroundColor: colors.primary,
-    paddingVertical: 0,
-    paddingHorizontal: 0,
-  },
-  clearButton: {
-    borderRadius: 24,
-    borderColor: colors.primary,
-    paddingVertical: 0,
-    paddingHorizontal: 0,
-    marginLeft: 8,
-  },
+    container: {
+        flex: 1,
+    },
+    backgroundImage: {
+        flex: 1, // Ensure it fills the container
+        width: '100%',
+        height: '100%',
+    },
+    overlay: {
+        flex: 1,
+        backgroundColor: colors.backgroundOverlay, // Adjust opacity as needed
+    },
+    safeArea: {
+        flex: 1,
+        justifyContent: 'space-between', // Pushes header up, footer down
+    },
+    header: {
+        paddingHorizontal: 15,
+        paddingTop: Platform.OS === 'android' ? 15 : 0, // Adjust padding for Android status bar
+        width: '100%', // Ensure header takes full width for positioning
+    },
+    backButton: {
+        padding: 10, // Increase tap area
+        alignSelf: 'flex-start', // Position to the left
+    },
+    contentArea: {
+        flex: 1, // Takes up remaining space between header/footer
+        justifyContent: 'center', // Center content vertically
+        alignItems: 'center', // Center content horizontally
+        paddingHorizontal: 20,
+        marginBottom: 100, // Add some space above the mic button area
+    },
+    lottieVisualizer: {
+        width: 250, // Adjust size as needed
+        height: 250, // Adjust size as needed
+        marginBottom: 30, // Space between animation and text
+    },
+    statusText: {
+        fontSize: 18,
+        fontWeight: '500',
+        color: colors.textPrimary,
+        textAlign: 'center',
+        marginTop: 10, // Space below the visualizer/figure
+    },
+    footer: {
+        // Position the footer absolutely or use flexbox in SafeAreaView
+        width: '100%',
+        alignItems: 'center', // Center the mic button horizontally
+        paddingBottom: Platform.OS === 'ios' ? 40 : 30, // Padding at the very bottom
+    },
+    micButton: {
+        width: 80,
+        height: 80,
+        borderRadius: 40, // Make it perfectly circular
+        backgroundColor: colors.micButtonBackground,
+        justifyContent: 'center',
+        alignItems: 'center',
+        // Shadow for iOS
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 5,
+        // Elevation for Android
+        elevation: 0,
+    },
+    // micIcon style is applied directly via props in the Icon component
 });
 
-export default ChatScreen;
+export default VoiceModeAIScreen;

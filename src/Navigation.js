@@ -129,7 +129,6 @@ const MainTabs = () => (
     >
         <Tab.Screen name="HomeScreen" component={HomeScreen} />
         <Tab.Screen name="ChatWelcomeScreen" component={ChatWelcomeScreen} />
-        <Tab.Screen name="VoiceModeAI" component={VoiceModeAI} options={{ tabBarButton: () => null }} />
         <Tab.Screen name="JournalAI" component={JournalAI} />
         <Tab.Screen name="SoundTherapy" component={SoundTherapy} />
     </Tab.Navigator>
@@ -146,6 +145,7 @@ const AppStack = () => (
         <AppStackNav.Screen name="Resources" component={Resources} />
         <AppStackNav.Screen name="MoodTrackerScreen" component={MoodTrackerScreen} />
         <AppStackNav.Screen name="ProfileScreen" component={ProfileScreen} />
+        <AppStackNav.Screen name="VoiceModeAI" component={VoiceModeAI} />
     </AppStackNav.Navigator>
 );
 
