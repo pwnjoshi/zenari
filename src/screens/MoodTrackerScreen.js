@@ -232,7 +232,7 @@ const MoodTrackerScreen = ({ navigation }) => {
     // --- Function to Fetch AI Insight (Using Specific Key/URL) ---
     const fetchAiInsight = useCallback(async (fullHistory) => {
         // !!! SECURITY WARNING: Avoid hardcoding API keys in production apps. Use environment variables or a secure backend. !!!
-        const API_KEY = 'AIzaSyC71zqfdneQpkrMNXRCHwkUqHTiZTLqo1M'; // Replace with your actual key if needed
+        const API_KEY = 'AIzaSyAGS0CEUsEKw8WS0mPqj90ebPZcu4QUk3U'; // Replace with your actual key if needed
         const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
         // Filter history for the last 7 days (including today)

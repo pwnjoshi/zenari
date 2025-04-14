@@ -1,8 +1,6 @@
 // ───────────────────────────────────────────────────────────────
 // 1) Toggle Hermes here: true = Hermes on, false = JSC
-project.ext.react = [
-    enableHermes: true
-]
+def hermesEnabled = true
 
 // 2) Apply your plugins
 apply plugin: "com.android.application"
