@@ -53,7 +53,7 @@ const colors = {
 // --- Mood Options with Lottie URLs ---
 // IMPORTANT: Replace placeholder URLs with actual Noto Emoji Lottie JSON URLs if needed
 const moodOptions = [
-    { emoji: '😄', label: 'Very happy', lottieUrl: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f604/lottie.json' },
+    { emoji: '😄', label: 'Happy', lottieUrl: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f604/lottie.json' },
     { emoji: '🤩', label: 'Excited', lottieUrl: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f929/lottie.json' },
     { emoji: '😊', label: 'Calm', lottieUrl: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f60a/lottie.json' },
     { emoji: '😟', label: 'Sad', lottieUrl: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f61f/lottie.json' },
@@ -231,7 +231,7 @@ const HomeScreen = () => {
                 setSuggestionText("Consider chatting with AI for support or try a mindful breath exercise.");
                 setDynamicButtonText("Chat with AI"); // Adjust text/target as needed
                 break;
-            case 'Very happy':
+            case 'Happy':
             case 'Excited':
             case 'Calm':
                 setSuggestionText("Great! Reflect on this feeling or try a mindful breath session.");
@@ -576,7 +576,7 @@ const styles = StyleSheet.create({
         marginBottom: 25, // Increased spacing
     },
     moodTitle: {
-        fontSize: 19,
+        fontSize: 17,
         color: colors.textDark,
         fontWeight: '600',
         marginLeft: 12,
@@ -590,8 +590,8 @@ const styles = StyleSheet.create({
     moodOptionsRow: {
         flexDirection: 'row',
         justifyContent: 'space-around',
-        marginBottom: 15,
-        marginTop: 10,
+        marginBottom: 10,
+        marginTop: 5,
         alignItems: 'flex-start',
     },
     moodButton: {
