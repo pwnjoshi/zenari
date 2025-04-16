@@ -21,7 +21,7 @@ import RNFS from 'react-native-fs'; // For defining save path
 
 // --- Constants ---
 const COLORS = { /* ... Colors ... */
-    background: '#F7F9FC', primary: '#A3A8F0', primaryLight: '#D0D3FA', secondary: '#C2F0F0', secondaryLight: '#E0F7FA', accent: '#F0E4F8', accentLight: '#F8F0FC', text: '#34495E', textSecondary: '#8A95B5', lightText: '#AEB8D5', white: '#FFFFFF', cardBackground: '#FFFFFF', border: '#E0E5F1', error: '#E74C3C', disabled: '#B0BEC5', happy: '#FFDA63', sad: '#87CEEB', calm: '#A3A8F0', neutral: '#D0D3FA', anxious: '#FFAC81', stressed: '#C3A9F4', grateful: '#FFD700', tagBackground: '#E0F7FA', suggestionBackground: '#F8F0FC', recording: '#E74C3C', playButton: '#4CAF50',
+    background: '#F7F9FC', primary: '#A3A8F0', primaryLight: '#D0D3FA', secondary: '#C2F0F0', secondaryLight: '#E0F7FA', accent: '#F0E4F8', accentLight: '#F8F0FC', text: '#34495E', textSecondary: '#8A95B5', lightText: '#AEB8D5', white: '#FFFFFF', cardBackground: '#FFFFFF', border: '#E0E5F1', error: '#E74C3C', disabled: '#B0BEC5', happy: '#FFDA63', sad: '#87CEEB', calm: '#A3A8F0', neutral: '#D0D3FA', anxious: '#FFAC81', stressed: '#C3A9F4', grateful: '#FFD700', tagBackground: '#E0F7FA', suggestionBackground: '#F8F0FC', recording: '#E74C3C', playButton: '#4CAF50', deleteButton: '#E57373',
 };
 const { width } = Dimensions.get('window');
 const INPUT_TEXT_MAX_HEIGHT = 120;
@@ -48,8 +48,9 @@ const RECORDING_DIR = Platform.OS === 'ios'
 
 // --- Helper Functions ---
 
-// ** NEW: Custom Timer Formatting Function **
+// ** Custom Timer Formatting Function **
 const formatMillisToMMSS = (millis) => {
+    if (typeof millis !== 'number' || millis < 0) return '00:00'; // Handle invalid input
     const totalSeconds = Math.floor(millis / 1000);
     const seconds = totalSeconds % 60;
     const minutes = Math.floor(totalSeconds / 60);
@@ -97,7 +98,8 @@ const fetchAIAnalysis = async (text) => { /* ... (keep robust implementation) ..
 const MemoizedJournalHistoryItem = React.memo(({
     item,
     onPlayPause, // Callback function to handle play/pause
-    currentlyPlayingId // ID of the item currently playing (or null)
+    currentlyPlayingId, // ID of the item currently playing (or null)
+    onDelete // Callback function to handle delete
 }) => {
     // ... (Keep implementation from previous version) ...
     const validItem = item || {};
@@ -127,14 +129,31 @@ const MemoizedJournalHistoryItem = React.memo(({
         }
     };
 
+    // Delete handler for this specific item
+    const handleDeletePress = () => {
+        if (item.id) {
+            onDelete(item.id, audioFilePath); // Pass ID and path to parent
+        }
+    };
+
     return (
         <View style={styles.historyItem}>
             <View style={styles.historyHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1, marginRight: 10 }}>
+                {/* Left side: Mood icon, Date, Time */}
+                <View style={styles.historyHeaderLeft}>
                     <Icon name={moodInfo.name} size={20} color={moodInfo.color || COLORS.lightText} style={styles.historyMoodIcon} />
                     <Text style={styles.historyDate} numberOfLines={1}>{String(dateString)}</Text>
+                    <Text style={styles.historyTime} numberOfLines={1}>{String(timeString)}</Text>
                 </View>
-                <Text style={styles.historyTime} numberOfLines={1}>{String(timeString)}</Text>
+                {/* Right side: Delete Button */}
+                <IconButton
+                    icon="trash-can-outline"
+                    size={18}
+                    color={COLORS.deleteButton}
+                    onPress={handleDeletePress}
+                    // Removed style={styles.deleteButton} to avoid negative margin issues
+                    rippleColor={COLORS.deleteButton + '30'} // Optional: visual feedback
+                />
             </View>
             {prompt && <Text style={styles.historyPrompt} numberOfLines={1}>Prompt: {prompt}</Text>}
             <Text style={styles.historyText} numberOfLines={audioFilePath ? 1 : 2}>{String(displayText)}</Text>
@@ -144,7 +163,7 @@ const MemoizedJournalHistoryItem = React.memo(({
                     <Icon name={displayIcon} size={14} color={COLORS.lightText} />
                     <Text style={styles.historyModeText}>{String(modeText)}</Text>
                 </View>
-                {/* Audio Controls: Render Icon and Text separately */}
+                {/* Audio Controls */}
                 {audioFilePath && (
                     <View style={styles.audioControls}>
                          {/* FIX: Structure for Text Warning */}
@@ -195,8 +214,8 @@ const ZenariJournalScreen = () => {
     const scrollViewRef = useRef(null);
     const firestoreListenerUnsubscribe = useRef(null);
     const playbackListener = useRef(null);
-    const manualTimerIntervalRef = useRef(null); // Ref for the manual timer interval
-    const recordingStartTimeRef = useRef(null); // Ref to store recording start time
+    const manualTimerIntervalRef = useRef(null);
+    const recordingStartTimeRef = useRef(null);
 
     // --- Callbacks ---
 
@@ -207,59 +226,15 @@ const ZenariJournalScreen = () => {
     }, []);
 
     // Start Audio Recording (Now also starts accurate manual timer)
-    const startRecording = useCallback(async () => {
-        if (isRecording) return;
-        setError('');
-        const granted = await requestAudioPermission();
-        if (!granted) return;
-        if (!currentUserId) { console.error("Cannot start recording: No user ID"); Toast.show({ type: 'error', text1: 'Error', text2: 'User ID not found.' }); return; }
-        if (isPlayingId) { await stopPlayback(); }
-
-        try {
-            await RNFS.mkdir(RECORDING_DIR);
-            const timestamp = Date.now();
-            const path = `${RECORDING_DIR}/journal_${currentUserId}_${timestamp}.m4a`;
-            console.log('Starting recording to:', path);
-            const result = await audioRecorderPlayer.startRecorder(path, audioSet);
-            console.log('Rec started:', result);
-
-            // Set recording state and start time for manual timer
-            recordingStartTimeRef.current = Date.now(); // Store start time
-            setCurrentAudioPath(path);
-            setRecordTime('00:00'); // Reset display to MM:SS
-            setIsRecording(true); // This triggers the manual timer useEffect
-
-        } catch (err) {
-            console.error('❌ Failed to start recording:', err);
-            setError(`Failed to start recording: ${err.message || 'Unknown error'}`);
-            Toast.show({ type: 'error', text1: 'Recording Error', text2: `Could not start recording. ${err.message || ''}`, visibilityTime: 4000 });
-            setIsRecording(false);
-            setCurrentAudioPath('');
-            recordingStartTimeRef.current = null; // Reset start time on error
-        }
+    const startRecording = useCallback(async () => { /* ... (keep implementation) ... */
+        if (isRecording) return; setError(''); const granted = await requestAudioPermission(); if (!granted) return; if (!currentUserId) { console.error("Cannot start recording: No user ID"); Toast.show({ type: 'error', text1: 'Error', text2: 'User ID not found.' }); return; } if (isPlayingId) { await stopPlayback(); }
+        try { await RNFS.mkdir(RECORDING_DIR); const timestamp = Date.now(); const path = `${RECORDING_DIR}/journal_${currentUserId}_${timestamp}.m4a`; console.log('Starting recording to:', path); const result = await audioRecorderPlayer.startRecorder(path, audioSet); console.log('Rec started:', result); recordingStartTimeRef.current = Date.now(); setCurrentAudioPath(path); setRecordTime('00:00'); setIsRecording(true); } catch (err) { console.error('❌ Failed to start recording:', err); setError(`Failed to start recording: ${err.message || 'Unknown error'}`); Toast.show({ type: 'error', text1: 'Recording Error', text2: `Could not start recording. ${err.message || ''}`, visibilityTime: 4000 }); setIsRecording(false); setCurrentAudioPath(''); recordingStartTimeRef.current = null; }
     }, [isRecording, requestAudioPermission, currentUserId, isPlayingId, stopPlayback]);
 
     // Stop Audio Recording (Now also stops manual timer via useEffect)
-    const stopRecording = useCallback(async () => {
-        if (!isRecording) return;
-        console.log('Stopping recording...');
-        try {
-            const result = await audioRecorderPlayer.stopRecorder();
-            console.log('Rec stopped:', result);
-            // Calculate final duration for display if needed immediately
-            if (recordingStartTimeRef.current) {
-                 const finalDurationMs = Date.now() - recordingStartTimeRef.current;
-                 // Use the custom formatter for the final time
-                 setRecordTime(formatMillisToMMSS(finalDurationMs));
-            }
-        } catch (err) {
-            console.error('Stop rec error:', err);
-            setError('Stop rec failed.');
-        } finally {
-            setIsRecording(false); // Set recording to false triggers timer cleanup
-            recordingStartTimeRef.current = null; // Reset start time
-        }
-    }, [isRecording]); // Dependency
+    const stopRecording = useCallback(async () => { /* ... (keep implementation using formatMillisToMMSS) ... */
+        if (!isRecording) return; console.log('Stopping recording...'); try { const result = await audioRecorderPlayer.stopRecorder(); console.log('Rec stopped:', result); if (recordingStartTimeRef.current) { const finalDurationMs = Date.now() - recordingStartTimeRef.current; setRecordTime(formatMillisToMMSS(finalDurationMs)); } } catch (err) { console.error('Stop rec error:', err); setError('Stop rec failed.'); } finally { setIsRecording(false); recordingStartTimeRef.current = null; }
+    }, [isRecording]);
 
     // Handle Mode Change
     const handleModeChange = useCallback(async (newMode) => { /* ... (keep implementation) ... */
@@ -288,53 +263,81 @@ const ZenariJournalScreen = () => {
     }, [journalEntry, currentAudioPath, isRecording, isProcessingAI, currentUserId, mode, reflectivePrompt]);
 
     // --- Playback Callbacks ---
-    const stopPlayback = useCallback(async () => { /* ... (keep implementation) ... */
-        console.log('Stopping playback'); setIsPlayingId(null); try { await audioRecorderPlayer.stopPlayer(); if (playbackListener.current) { audioRecorderPlayer.removePlayBackListener(playbackListener.current); playbackListener.current = null; console.log('Playback listener removed.'); } } catch (err) { console.error('Failed to stop player:', err); } setPlayBackTime('00:00'); setPlayBackDuration('00:00'); // Use MM:SS
+    const stopPlayback = useCallback(async () => { /* ... (keep implementation using formatMillisToMMSS) ... */
+        console.log('Stopping playback'); setIsPlayingId(null); try { await audioRecorderPlayer.stopPlayer(); if (playbackListener.current) { audioRecorderPlayer.removePlayBackListener(playbackListener.current); playbackListener.current = null; console.log('Playback listener removed.'); } } catch (err) { console.error('Failed to stop player:', err); } setPlayBackTime('00:00'); setPlayBackDuration('00:00');
     }, []);
 
-    const startPlayback = useCallback(async (path, id) => {
-        if (isPlayingId && isPlayingId !== id) { await stopPlayback(); }
-        console.log(`Starting playback for ID: ${id}, Path: ${path}`);
-        try {
-            const fileExists = await RNFS.exists(path);
-            if (!fileExists) { throw new Error(`Audio file not found: ${path}`); }
-
-            const result = await audioRecorderPlayer.startPlayer(path);
-            console.log('Playback started:', result);
-            setIsPlayingId(id);
-
-            if (playbackListener.current) {
-                audioRecorderPlayer.removePlayBackListener(playbackListener.current);
-                playbackListener.current = null;
-            }
-
-            const listener = (e) => {
-                if (e.currentPosition != null && e.duration != null) {
-                    // Use custom formatter for playback time/duration
-                    setPlayBackTime(formatMillisToMMSS(e.currentPosition));
-                    setPlayBackDuration(formatMillisToMMSS(e.duration));
-                    // Check if playback finished (use milliseconds for comparison)
-                    if (e.currentPosition >= e.duration - 150) { // Check slightly before exact end
-                        console.log('Playback likely finished');
-                        stopPlayback();
-                    }
-                }
-            };
-            audioRecorderPlayer.addPlayBackListener(listener);
-            playbackListener.current = listener;
-            console.log('Playback listener added.');
-        } catch (err) {
-            console.error('Failed to start player:', err);
-            Toast.show({ type: 'error', text1: 'Playback Error', text2: err.message || 'Could not play audio.' });
-            setIsPlayingId(null);
-        }
-    }, [isPlayingId, stopPlayback]); // Dependencies
+    const startPlayback = useCallback(async (path, id) => { /* ... (keep implementation using formatMillisToMMSS) ... */
+        if (isPlayingId && isPlayingId !== id) { await stopPlayback(); } console.log(`Starting playback for ID: ${id}, Path: ${path}`); try { const fileExists = await RNFS.exists(path); if (!fileExists) { throw new Error(`Audio file not found: ${path}`); } const result = await audioRecorderPlayer.startPlayer(path); console.log('Playback started:', result); setIsPlayingId(id); if (playbackListener.current) { audioRecorderPlayer.removePlayBackListener(playbackListener.current); playbackListener.current = null; } const listener = (e) => { if (e.currentPosition != null && e.duration != null) { setPlayBackTime(formatMillisToMMSS(e.currentPosition)); setPlayBackDuration(formatMillisToMMSS(e.duration)); if (e.currentPosition >= e.duration - 150) { console.log('Playback likely finished'); stopPlayback(); } } }; audioRecorderPlayer.addPlayBackListener(listener); playbackListener.current = listener; console.log('Playback listener added.'); } catch (err) { console.error('Failed to start player:', err); Toast.show({ type: 'error', text1: 'Playback Error', text2: err.message || 'Could not play audio.' }); setIsPlayingId(null); }
+    }, [isPlayingId, stopPlayback]);
 
     // Combined Play/Pause Handler
     const handlePlayPause = useCallback((path, id) => { /* ... (keep implementation) ... */
         if (isPlayingId === id) { stopPlayback(); } else { startPlayback(path, id); }
     }, [isPlayingId, startPlayback, stopPlayback]);
 
+    // ** Delete Entry Handler (with Manual State Update & Enhanced Logging) **
+    const handleDeleteEntry = useCallback(async (entryId, entryAudioFilePath) => {
+        if (!entryId) {
+            console.error("Delete failed: No entry ID provided.");
+            Toast.show({ type: 'error', text1: 'Delete Error', text2: 'Cannot delete entry without ID.' });
+            return;
+        }
+
+        Alert.alert(
+            "Delete Entry",
+            "Are you sure you want to permanently delete this journal entry?",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: async () => {
+                        console.log(`Attempting to delete entry: ${entryId}`);
+                        try {
+                            if (isPlayingId === entryId) {
+                                await stopPlayback();
+                            }
+
+                            // Attempt Firestore deletion
+                            await firestore().collection('journals').doc(entryId).delete();
+                            console.log(`Firestore document delete command sent for: ${entryId}`);
+
+                            // ** Manually update UI state immediately **
+                            setJournalHistory(prevHistory => prevHistory.filter(item => item.id !== entryId));
+                            console.log(`UI State manually filtered for deleted entry: ${entryId}`); // Log manual filter
+
+                            // Delete local file (best effort)
+                            if (entryAudioFilePath) {
+                                try {
+                                    const fileExists = await RNFS.exists(entryAudioFilePath);
+                                    if (fileExists) {
+                                        await RNFS.unlink(entryAudioFilePath);
+                                        console.log(`Local audio file deleted: ${entryAudioFilePath}`);
+                                    } else {
+                                         console.log(`Local audio file not found, skipping delete: ${entryAudioFilePath}`);
+                                    }
+                                } catch (fileErr) {
+                                    console.warn(`Could not delete local audio file ${entryAudioFilePath}:`, fileErr);
+                                }
+                            }
+
+                            Toast.show({ type: 'success', text1: 'Entry Deleted' });
+
+                        } catch (err) {
+                            // ** Enhanced Error Logging **
+                            console.error(`❌ Failed to delete entry ${entryId}: Code: ${err.code}, Message: ${err.message}`, err);
+                            const errorMsg = err.code === 'permission-denied'
+                                ? 'Permission denied by Firestore rules.'
+                                : err.message || 'Could not delete entry.';
+                            Toast.show({ type: 'error', text1: 'Delete Failed', text2: errorMsg });
+                            setError(`Failed to delete entry: ${errorMsg}`);
+                        }
+                    }
+                }
+            ]
+        );
+    }, [isPlayingId, stopPlayback]); // Dependencies
 
     // --- Effects ---
 
@@ -348,14 +351,13 @@ const ZenariJournalScreen = () => {
     // Setup Audio Recording Listener (Now only for debugging)
     useEffect(() => {
         const recordBackListener = (e) => {
-            // Keep logs to see if library *ever* sends updates
-            console.log('Record Listener Fired (Debug):', e);
+            // console.log('Record Listener Fired (Debug):', e); // Keep commented unless debugging library
         };
         audioRecorderPlayer.addRecordBackListener(recordBackListener);
-        console.log("Record back listener added (for debugging only).");
+        // console.log("Record back listener added (for debugging only).");
         if(currentUserId && !hasMicPermission) requestAudioPermission();
         return () => {
-            console.log("Removing record back listener.");
+            // console.log("Removing record back listener.");
             audioRecorderPlayer.removeRecordBackListener();
         };
     }, [currentUserId, hasMicPermission, requestAudioPermission]);
@@ -363,7 +365,7 @@ const ZenariJournalScreen = () => {
     // ** EFFECT FOR MANUAL TIMER (ACCURATE & MM:SS) **
     useEffect(() => {
         if (isRecording) {
-            console.log("Starting manual timer interval...");
+            // console.log("Starting manual timer interval..."); // Less verbose logging
             if (!recordingStartTimeRef.current) {
                  recordingStartTimeRef.current = Date.now();
             }
@@ -372,19 +374,19 @@ const ZenariJournalScreen = () => {
             manualTimerIntervalRef.current = setInterval(() => {
                 if (recordingStartTimeRef.current) {
                     const elapsed = Date.now() - recordingStartTimeRef.current;
-                    // Use custom formatter
+                    // Use custom formatter with MILLISECONDS
                     const formattedTime = formatMillisToMMSS(elapsed);
                     // console.log(`Manual Timer Tick - Elapsed: ${elapsed}ms, Formatted: ${formattedTime}`); // Keep for debugging if needed
                     setRecordTime(formattedTime);
                 } else {
-                    console.warn("Manual timer interval fired but recordingStartTimeRef is not set.");
+                    // console.warn("Manual timer interval fired but recordingStartTimeRef is not set.");
                 }
             }, 1000); // Update every second
 
         } else {
             // Clear interval if not recording or when recording stops
             if (manualTimerIntervalRef.current) {
-                console.log("Clearing manual timer interval.");
+                // console.log("Clearing manual timer interval."); // Less verbose logging
                 clearInterval(manualTimerIntervalRef.current);
                 manualTimerIntervalRef.current = null;
             }
@@ -395,7 +397,7 @@ const ZenariJournalScreen = () => {
         // Cleanup function for the effect
         return () => {
             if (manualTimerIntervalRef.current) {
-                console.log("Cleaning up manual timer interval on unmount/dependency change.");
+                // console.log("Cleaning up manual timer interval on unmount/dependency change."); // Less verbose logging
                 clearInterval(manualTimerIntervalRef.current);
                 manualTimerIntervalRef.current = null;
             }
@@ -408,7 +410,7 @@ const ZenariJournalScreen = () => {
 
     // Fetch Journal History (Triggered by currentUserId change)
     // ***** CRITICAL: Requires Firestore index on 'journals' collection: userId ASC, timestamp DESC *****
-    // ***** If history doesn't update in real-time, THIS INDEX IS LIKELY MISSING! *****
+    // ***** If history doesn't update in real-time, THIS INDEX IS LIKELY MISSING OR INEFFICIENT! *****
     useEffect(() => { /* ... (keep implementation with debug logs) ... */
         if (firestoreListenerUnsubscribe.current) { console.log("Unsubscribing previous Firestore listener."); firestoreListenerUnsubscribe.current(); firestoreListenerUnsubscribe.current = null; }
         if (!currentUserId) { setJournalHistory([]); setIsLoadingHistory(false); console.log("No user ID, skipping history fetch."); return; }
@@ -497,6 +499,7 @@ const ZenariJournalScreen = () => {
                                      item={item}
                                      onPlayPause={handlePlayPause} // Pass the handler
                                      currentlyPlayingId={isPlayingId} // Pass the currently playing ID
+                                     onDelete={handleDeleteEntry} // ** NEW: Pass delete handler **
                                  />
                              )}
                              keyExtractor={(item) => item.id} // Use Firestore document ID as key
@@ -532,7 +535,7 @@ const styles = StyleSheet.create({
         borderRadius: 30,
         paddingVertical: 6,
         paddingHorizontal: 6,
-        elevation: 2,
+        elevation: 20,
         shadowColor: COLORS.primary,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
@@ -552,7 +555,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         minHeight: 40,
     },
-    modeButtonActive: { backgroundColor: COLORS.primary, elevation: 3, shadowOpacity: 0.15, shadowRadius: 3, },
+    modeButtonActive: { backgroundColor: COLORS.primary, elevation: 20, shadowOpacity: 0.15, shadowRadius: 3, },
     modeButtonText: { fontSize: 14, marginLeft: 8, color: COLORS.primary, fontWeight: '600', textAlign: 'center', },
     modeButtonTextActive: { color: COLORS.white, },
     modeButtonDisabled: { opacity: 0.5, },
@@ -560,9 +563,9 @@ const styles = StyleSheet.create({
     textInput: { backgroundColor: COLORS.cardBackground, minHeight: 150, borderRadius: 15, paddingTop: 15, padding: 15, fontSize: 16, color: COLORS.text, marginBottom: 20, borderWidth: 1, borderColor: COLORS.border, lineHeight: 24, textAlignVertical: 'top', },
     textInputDisabled: { backgroundColor: COLORS.background, color: COLORS.lightText, borderColor: COLORS.disabled + '60', opacity: 0.7, },
     voiceInputWrapper: { alignItems: 'center', marginBottom: 20, padding: 15, backgroundColor: COLORS.white, borderRadius: 15, borderWidth: 1, borderColor: COLORS.border, minHeight: 180, justifyContent: 'center', },
-    micButton: { backgroundColor: COLORS.primary, width: 75, height: 75, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 15, elevation: 4, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 5, borderWidth: 2, borderColor: COLORS.primaryLight + '99', },
+    micButton: { backgroundColor: COLORS.primary, width: 75, height: 75, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 15, elevation: 20, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 5, borderWidth: 2, borderColor: COLORS.primaryLight + '99', },
     micButtonRecording: { backgroundColor: COLORS.recording, shadowColor: COLORS.recording, borderColor: COLORS.error + '99', },
-    micButtonDisabled: { backgroundColor: COLORS.disabled, opacity: 0.6, elevation: 1, shadowColor: COLORS.disabled, borderColor: COLORS.disabled + '50', },
+    micButtonDisabled: { backgroundColor: COLORS.disabled, opacity: 0.6, elevation: 20, shadowColor: COLORS.disabled, borderColor: COLORS.disabled + '50', },
     voiceStatusText: { fontSize: 15, color: COLORS.textSecondary, marginBottom: 10, textAlign: 'center', minHeight: 20, },
     permissionButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.error + '20', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20, marginBottom: 15, borderWidth: 1, borderColor: COLORS.error + '50', },
     permissionButtonText: { color: COLORS.error, fontSize: 14, fontWeight: '600', },
@@ -570,8 +573,8 @@ const styles = StyleSheet.create({
     promptContainer: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: COLORS.accentLight, padding: 15, borderRadius: 12, marginBottom: 15, borderLeftWidth: 4, borderLeftColor: COLORS.accent, },
     promptIcon: { marginRight: 10, marginTop: 2, color: COLORS.primary, },
     promptText: { fontSize: 15, color: COLORS.text, flex: 1, lineHeight: 22, },
-    saveButton: { backgroundColor: COLORS.secondary, paddingVertical: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', marginBottom: 25, elevation: 3, shadowColor: '#000000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3, borderWidth: 1, borderColor: COLORS.secondary + '50', minHeight: 50, },
-    saveButtonDisabled: { backgroundColor: COLORS.disabled, opacity: 0.7, elevation: 1, shadowOpacity: 0.1, borderColor: COLORS.disabled + '50', },
+    saveButton: { backgroundColor: COLORS.secondary, paddingVertical: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', marginBottom: 25, elevation: 20, shadowColor: '#000000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3, borderWidth: 1, borderColor: COLORS.secondary + '50', minHeight: 50, },
+    saveButtonDisabled: { backgroundColor: COLORS.disabled, opacity: 0.7, elevation: 20, shadowOpacity: 0.1, borderColor: COLORS.disabled + '50', },
     saveButtonText: { color: COLORS.text, fontSize: 16, fontWeight: '600', },
     aiContainer: { backgroundColor: COLORS.cardBackground, borderRadius: 15, padding: 20, marginBottom: 25, borderWidth: 1, borderColor: COLORS.border, },
     aiLoadingContainer: { alignItems: 'center', paddingVertical: 30, },
@@ -586,7 +589,7 @@ const styles = StyleSheet.create({
     suggestionItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10, padding: 12, backgroundColor: COLORS.suggestionBackground, borderRadius: 10, },
     suggestionIcon: { marginRight: 12, marginTop: 3, color: COLORS.primary, },
     suggestionText: { fontSize: 15, color: COLORS.text, flex: 1, lineHeight: 22, },
-    insightCard: { backgroundColor: COLORS.white, borderRadius: 15, padding: 20, marginBottom: 25, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1, },
+    insightCard: { backgroundColor: COLORS.white, borderRadius: 15, padding: 20, marginBottom: 25, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 30, },
     insightIcon:{ marginRight: 15, color: COLORS.secondary, },
     insightContent: { flex: 1, },
     insightTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 5, },
@@ -594,10 +597,24 @@ const styles = StyleSheet.create({
     historyContainer: { marginTop: 20, },
     historyTitle: { fontSize: 20, fontWeight: '600', color: COLORS.text, marginBottom: 15, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, },
     historyItem: { backgroundColor: COLORS.cardBackground, borderRadius: 12, padding: 15, borderWidth: 1, borderColor: COLORS.border, },
-    historyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, },
+    historyHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between', // Space between left group and delete button
+        marginBottom: 8,
+    },
+    historyHeaderLeft: { // Group mood, date, time
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexShrink: 1, // Allow shrinking if needed
+        marginRight: 8, // Space before delete button
+    },
     historyMoodIcon: { marginRight: 10, },
-    historyDate: { fontSize: 14, color: COLORS.text, fontWeight: '600', flexShrink: 1, },
-    historyTime: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500', marginLeft: 5, },
+    historyDate: { fontSize: 14, color: COLORS.text, fontWeight: '600', marginRight: 5, }, // Added margin
+    historyTime: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500', flexShrink: 1, }, // Allow time to shrink if needed
+    deleteButton: { // Style for delete button positioning
+         margin: -10, // Reduce touchable area padding
+    },
     historyPrompt: { fontSize: 13, color: COLORS.primary, fontStyle: 'italic', marginBottom: 8, opacity: 0.9, },
     historyText: { fontSize: 14, color: COLORS.textSecondary, lineHeight: 20, marginBottom: 5, },
     historyFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', // Space out mode text and controls
