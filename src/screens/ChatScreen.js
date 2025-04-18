@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-    View, TextInput, FlatList, StyleSheet, KeyboardAvoidingView, Platform, Dimensions, ActivityIndicator, Text, LogBox, Alert, InteractionManager // <-- Added InteractionManager
+    View, TextInput, FlatList, StyleSheet, KeyboardAvoidingView, Platform, Dimensions, ActivityIndicator, Text, LogBox, Alert, InteractionManager
 } from 'react-native';
 import { IconButton } from 'react-native-paper';
 import axios from 'axios';
@@ -13,119 +13,85 @@ import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 
 // *** Import for Keyboard Handling Optimization ***
-import { useHeaderHeight } from '@react-navigation/elements'; // Import hook to get header height
+import { useHeaderHeight } from '@react-navigation/elements';
 
 // Ignore specific warnings if needed (use sparingly)
-// LogBox.ignoreLogs(['[@RNC/AsyncStorage]']); // Example
-// LogBox.ignoreLogs(['You seem to update props of the "TRenderEngineProvider"']); // Example if the performance warning is too noisy during dev
+// LogBox.ignoreLogs(['[@RNC/AsyncStorage]']);
+// LogBox.ignoreLogs(['You seem to update props of the "TRenderEngineProvider"']);
+// LogBox.ignoreLogs(['This method is deprecated']); // Optionally ignore the Firebase warning for now
 
 const { width } = Dimensions.get('window');
 
 // --- Constants ---
-const colors = {
+const colors = { /* ... colors ... */
     primary: '#2bedbb', primaryLight: '#a6f9e2', primaryDark: '#1fcda9', background: '#F7F9FC', userBubble: '#E1F5FE', botBubble: '#E8F5E9', messageText: '#263238', inputBackground: '#FFFFFF', inputText: '#37474F', placeholderText: '#90A4AE', errorText: '#D32F2F', errorBackground: '#FFEBEE', timestamp: '#78909C', iconColor: '#546E7A', sendButtonDisabled: '#B0BEC5', micButtonBackground: '#ECEFF1', shadowColor: '#000', loadingIndicator: '#1fcda9',
     typingIndicatorText: '#78909C',
-    stopButtonBackground: '#F44336', // Red color for Stop button background
+    stopButtonBackground: '#F44336',
 };
-// Input area sizing
 const INPUT_AREA_MIN_HEIGHT = 55;
-const INPUT_TEXT_MAX_HEIGHT = 120; // Max height for the text input itself before scrolling
-const INPUT_CONTAINER_MAX_HEIGHT = INPUT_TEXT_MAX_HEIGHT + 20; // Max container height approx.
+const INPUT_TEXT_MAX_HEIGHT = 120;
+const INPUT_CONTAINER_MAX_HEIGHT = INPUT_TEXT_MAX_HEIGHT + 20;
 const MIC_BUTTON_SIZE = 40;
-// Animation speed
-const BUBBLE_TYPING_SPEED_MS = 25; // Slightly slower typing speed (might help performance warning slightly)
-// Context limits
-const MOOD_HISTORY_LIMIT = 7; // Max mood entries to fetch for context
-const NOTE_PREVIEW_LENGTH = 50; // Max chars for mood note preview in context
-const CHAT_HISTORY_LIMIT = 6; // Max messages (user+bot turns) to include in API history (adjust based on token limits)
-// Keyboard offset for Android
-const ANDROID_KEYBOARD_OFFSET = 20; // Small offset for Android with behavior='height'
-
-// --- API Config ---
-const API_KEY = GEMINI_API_KEY; // Ensure this is set in your .env file and loaded correctly
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent'; // Using Flash model
+const BUBBLE_TYPING_SPEED_MS = 30;
+const MOOD_HISTORY_LIMIT = 7;
+const NOTE_PREVIEW_LENGTH = 50;
+const CHAT_HISTORY_LIMIT = 6;
+const ANDROID_KEYBOARD_OFFSET = 20;
+const API_KEY = GEMINI_API_KEY;
+// *** Reverted API URL to 1.5-flash as per earlier versions, confirm if 2.0 was intended ***
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const API_TIMEOUT = 45000;
+const SYSTEM_MESSAGE_PREFIXES = ['initial-', 'reset-', 'error-', 'stopped-', 'typing-'];
 
 // --- Helpers & Hooks ---
 
-/**
- * Formats a JavaScript Date object into a locale time string (e.g., "11:30 AM").
- * @param {Date | null | undefined} timestamp - The Date object to format.
- * @returns {string} - Formatted time string or placeholder '--:--'.
- */
-const formatTimestamp = (timestamp) => {
+const formatTimestamp = (timestamp) => { /* ... formatTimestamp function ... */
     if (!timestamp || !(timestamp instanceof Date)) {
-        if (timestamp) console.warn("formatTimestamp received non-Date:", timestamp);
         return '--:--';
     }
     try {
         return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
     } catch (e) {
-        console.warn("Error formatting Date:", e);
+        console.warn("[FormatTimestamp] Error formatting Date:", e);
         return '--:--';
     }
 };
 
-/**
- * Custom hook to automatically scroll a FlatList to the end when messages change.
- * Uses InteractionManager for smoother scrolling after potential animations/interactions.
- * @param {React.RefObject<FlatList>} flatListRef - Ref object for the FlatList.
- * @param {Array<any>} messages - The messages array dependency.
- */
-const useAutoScroll = (flatListRef, messages) => {
+const useAutoScroll = (flatListRef, messages) => { /* ... useAutoScroll hook ... */
     useEffect(() => {
         if (!flatListRef.current || messages.length === 0) return;
-        // Use InteractionManager to delay scrolling until after animations/interactions are complete
-        const interactionPromise = InteractionManager.runAfterInteractions(() => {
+        const scrollToBottom = () => {
              if (flatListRef.current) {
-                 flatListRef.current.scrollToEnd({ animated: true });
-             }
-        });
-        // Fallback timer in case InteractionManager takes too long or doesn't fire
-        const timer = setTimeout(() => {
-            if (flatListRef.current) {
-                // Check if still needed - InteractionManager might have already run
-                // This check is basic; more complex logic could track if scrolling already happened.
                 flatListRef.current.scrollToEnd({ animated: true });
-            }
-        }, 250); // Adjust delay if needed
-
-        return () => {
-            interactionPromise.cancel(); // Cancel InteractionManager task if component unmounts
-            clearTimeout(timer); // Cleanup timer
+             }
         };
-    }, [messages, flatListRef]); // Rerun when messages array reference changes
+        const interactionPromise = InteractionManager.runAfterInteractions(scrollToBottom);
+        const timer = setTimeout(scrollToBottom, 150);
+        return () => {
+            interactionPromise.cancel();
+            clearTimeout(timer);
+        };
+    }, [messages]);
 };
 
-/**
- * Parses basic Markdown-like syntax to HTML for rendering.
- * Consider using a more robust library like 'react-native-markdown-display' for complex markdown.
- * @param {string} text - The text to parse.
- * @returns {string} - HTML string or original text on error.
- */
-const parseTextToHtml = (text) => {
-    if (!text) return '';
+
+const parseTextToHtml = (text) => { /* ... parseTextToHtml function ... */
+    if (typeof text !== 'string' || !text) return '';
     try {
-        // Basic replacements - order matters (e.g., bold before italic if nested)
         return text
-            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')       // Bold
-            .replace(/\*(.*?)\*/g, '<i>$1</i>')         // Italic
-            .replace(/__(.*?)__/g, '<u>$1</u>')       // Underline
-            .replace(/`(.*?)`/g, '<code>$1</code>')     // Code
-            .replace(/\n/g, '<br/>');                   // Newlines
+            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+            .replace(/\*(.*?)\*/g, '<i>$1</i>')
+            .replace(/__(.*?)__/g, '<u>$1</u>')
+            .replace(/`(.*?)`/g, '<code>$1</code>')
+            .replace(/\n/g, '<br/>');
     } catch (error) {
-        console.error('Error parsing text to HTML:', error);
-        return text; // Return original text on error
+        console.error('[ParseHtml] Error parsing text:', error);
+        return text;
     }
 };
 
-/**
- * Enhances bot responses with emojis and occasional closing remarks.
- * @param {string} text - The bot response text.
- * @returns {string} - The enhanced text.
- */
-const enhanceResponse = (text) => {
-    if (!text) return '';
-    // Add emojis based on keywords (case-insensitive)
+const enhanceResponse = (text) => { /* ... enhanceResponse function ... */
+    if (typeof text !== 'string' || !text) return '';
     let enhanced = text
         .replace(/\b(happy|joyful|glad|excited|wonderful|great)\b/gi, '$1 😊')
         .replace(/\b(sad|upset|down|lonely|depressed|unhappy)\b/gi, '$1 😔')
@@ -133,37 +99,27 @@ const enhanceResponse = (text) => {
         .replace(/\b(love|care|support|hug)\b/gi, '$1 ❤️')
         .replace(/\b(hope|wish|believe|positive)\b/gi, '$1 🌟')
         .replace(/\b(strength|courage|strong|resilient)\b/gi, '$1 💪')
-        .replace(/\b(sorry|apologize)\b/gi, '$1 🙏'); // Added sorry
-
-    // Add random closing flourish to longer messages
+        .replace(/\b(sorry|apologize)\b/gi, '$1 🙏');
     const closings = ["\n\nTake care... 💖", "\n\nThinking of you... 🌸", "\n\nSending positive vibes... 🌟", "\n\nBe well... 🌼", "\n\n✨"];
-    if (enhanced.length > 60 && Math.random() > 0.5) { // Slightly higher threshold and probability
+    if (enhanced.length > 70 && Math.random() > 0.4) {
         enhanced += closings[Math.floor(Math.random() * closings.length)];
     }
     return enhanced;
 };
 
-// --- Render Message Item ---
-/**
- * Renders a single message item (user or bot bubble).
- * Uses React.memo for performance optimization.
- */
-const RenderMessageItem = React.memo(({ item }) => {
+// --- Render Message Item (Memoized) ---
+const RenderMessageItem = React.memo(({ item }) => { /* ... RenderMessageItem component ... */
     const isUser = item.sender === 'user';
     const isTyping = item.typing === true;
     const showTimestamp = item.timestamp && !isTyping;
-    const textToRender = item.text || '';
+    const textToRender = typeof item.text === 'string' ? item.text : '';
     const baseTextStyle = styles.messageText;
-    // Memoize tagStyles to prevent recreation on every render
     const tagStyles = React.useMemo(() => ({
         b: { fontWeight: 'bold' },
         i: { fontStyle: 'italic' },
         u: { textDecorationLine: 'underline' },
         code: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', backgroundColor: 'rgba(0,0,0,0.05)', paddingVertical: 1, paddingHorizontal: 4, borderRadius: 3, fontSize: 14 },
-        // Add more tags here if needed (e.g., lists, links)
     }), []);
-
-    // Memoize source prop for RenderHTML if textToRender doesn't change
     const htmlSource = React.useMemo(() => ({
         html: parseTextToHtml(textToRender)
     }), [textToRender]);
@@ -171,17 +127,13 @@ const RenderMessageItem = React.memo(({ item }) => {
     return (
         <View style={[styles.messageRow, isUser ? styles.userRow : styles.botRow]}>
             <View style={[styles.messageBubble, isUser ? styles.userBubble : styles.botBubble]}>
-                {/* Render HTML content */}
-                {/* Note: The frequent updates during typing *will* cause warnings from this component.
-                    Accepting the warning or implementing a different typing indicator are options. */}
                 <RenderHTML
-                    contentWidth={width * 0.70} // Base calculation, adjust if needed
-                    source={htmlSource} // Use memoized source
+                    contentWidth={width * 0.70}
+                    source={htmlSource}
                     baseStyle={baseTextStyle}
-                    tagsStyles={tagStyles} // Use memoized styles
-                    enableExperimentalMarginCollapsing={true} // Optional: improve list rendering consistency
+                    tagsStyles={tagStyles}
+                    enableExperimentalMarginCollapsing={true}
                 />
-                {/* Display timestamp */}
                 {showTimestamp && (
                     <Text style={styles.timestampText}>{formatTimestamp(item.timestamp)}</Text>
                 )}
@@ -190,454 +142,471 @@ const RenderMessageItem = React.memo(({ item }) => {
     );
 });
 
-
 // --- Main Chat Screen Component ---
 const ChatScreen = ({ navigation }) => {
-    // --- State Variables ---
+    // --- State ---
     const [messages, setMessages] = useState([]);
     const [inputText, setInputText] = useState('');
-    const [isLoading, setIsLoading] = useState(false); // API loading state
-    const [isBotTyping, setIsBotTyping] = useState(false); // Controls typing animation logic
+    const [isLoading, setIsLoading] = useState(false);
+    const [isBotTyping, setIsBotTyping] = useState(false);
     const [error, setError] = useState(null);
     const [inputHeight, setInputHeight] = useState(INPUT_AREA_MIN_HEIGHT);
-    const [isInitializing, setIsInitializing] = useState(true); // Initial data load state
+    const [isInitializing, setIsInitializing] = useState(true);
     const [userProfile, setUserProfile] = useState(null);
     const [moodContextForApi, setMoodContextForApi] = useState([]);
 
     // --- Refs ---
     const flatListRef = useRef(null);
     const typingIntervalRef = useRef(null);
-    // Ref to hold the latest messages state, avoiding stale closures in callbacks
-    const messagesRef = useRef(messages);
+    const messagesRef = useRef(messages); // Still useful for accessing state *outside* of async updates
 
     // --- Hooks ---
-    const headerHeight = useHeaderHeight(); // Get header height from navigation
+    const headerHeight = useHeaderHeight();
 
     // --- Effects ---
 
-    // Update messagesRef whenever messages state changes
+    // Keep messagesRef updated (for potential use elsewhere, though not directly for history anymore)
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
 
-    // Effect to fetch initial data (profile, mood history) and set welcome message
-    useEffect(() => {
+    // Initial data fetching and setup
+    useEffect(() => { /* ... initializeChat effect ... */
         const initializeChat = async () => {
             setIsInitializing(true);
             setError(null);
-            console.log("Initializing chat...");
-
+            console.log("[Init] Initializing chat...");
             const currentUser = auth().currentUser;
-            if (!currentUser) {
-                console.error("Initialization failed: No user logged in.");
-                setError("Authentication error. Please log in.");
+            if (!currentUser) { /* ... handle no user ... */
+                console.error("[Init Error] No user logged in.");
+                setError("Authentication error. Please log in again.");
+                setMessages([{ id: 'initial-error-auth', text: "🌸 Hi there! I'm Zenari. Please log in to get personalized responses.", sender: 'bot', timestamp: new Date() }]);
                 setIsInitializing(false);
-                setMessages([{ id: 'initial-welcome', text: "🌸 Hi there! I'm Zenari. Please log in to get personalized responses.", sender: 'bot', timestamp: new Date() }]);
                 return;
             }
             const currentUserId = currentUser.uid;
             let profileData = null;
-            let welcomeMessage = "🌸 Hi there! I'm Zenari. How can I help you today?";
-
-            try {
+            let fetchedMoodContext = [];
+            let welcomeMessageText = "🌸 Hi there! I'm Zenari. How can I help you today?";
+            try { /* ... fetch profile and mood history ... */
                 // Fetch Profile
-                console.log(`Fetching profile for ${currentUserId}`);
+                console.log(`[Init] Fetching profile for ${currentUserId}...`);
                 const userDoc = await firestore().collection('users').doc(currentUserId).get();
                 if (userDoc.exists) {
                     profileData = userDoc.data();
                     setUserProfile(profileData);
-                    console.log("User profile fetched for init.");
+                    console.log("[Init] User profile fetched.");
                     if (profileData?.fullName) {
-                        welcomeMessage = `🌸 Hi ${profileData.fullName}! I'm Zenari. How are you feeling today?`;
+                        welcomeMessageText = `🌸 Hi ${profileData.fullName}! I'm Zenari. How are you feeling today?`;
                     }
                 } else {
-                    console.log("No user profile found during init.");
+                    console.log("[Init] No user profile document found.");
                 }
-
                 // Fetch Mood History
                 const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
                 const sevenDaysAgoTimestamp = firestore.Timestamp.fromDate(sevenDaysAgo);
-                console.log(`Fetching initial mood history since: ${sevenDaysAgo.toISOString()}`);
+                console.log(`[Init] Fetching mood history since: ${sevenDaysAgo.toISOString()}...`);
                 const moodQuerySnapshot = await firestore()
                     .collection('users').doc(currentUserId).collection('moodHistory')
                     .where('timestamp', '>=', sevenDaysAgoTimestamp)
                     .orderBy('timestamp', 'desc').limit(MOOD_HISTORY_LIMIT).get();
-
-                let recentMoods = [];
+                let recentMoodStrings = [];
                 if (!moodQuerySnapshot.empty) {
-                    const moodsData = moodQuerySnapshot.docs.map(doc => {
+                    const moodsData = moodQuerySnapshot.docs.map(doc => { /* ... process mood data ... */
                         const data = doc.data();
-                        recentMoods.push(data.mood?.toLowerCase());
+                        const mood = data.mood?.toLowerCase() || null;
+                        if (mood) recentMoodStrings.push(mood);
                         const dateStr = data.timestamp?.toDate()?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) ?? 'date?';
                         const noteText = data.note || '';
                         const notePreview = noteText.substring(0, NOTE_PREVIEW_LENGTH) + (noteText.length > NOTE_PREVIEW_LENGTH ? '...' : '');
                         return `${dateStr}: ${data.mood || 'N/A'}${notePreview ? ` (Note: "${notePreview}")` : ''}`;
                     });
                     const moodSummary = "User's recent mood history (last 7 days, newest first): " + moodsData.join('; ');
-                    setMoodContextForApi([
+                    fetchedMoodContext = [
                         { role: 'user', parts: [{ text: moodSummary }] },
                         { role: 'model', parts: [{ text: "Okay, I see the recent mood history." }] }
-                    ]);
-                    console.log("Initial mood history fetched and formatted.");
-
+                    ];
+                    console.log("[Init] Mood history fetched and formatted.");
                     // Dynamic Welcome Logic
                     const negativeMoods = ['sad', 'anxious', 'stressed', 'angry', 'down', 'upset', 'worried', 'irritable'];
-                    const hasNegativeMood = recentMoods.some(mood => negativeMoods.includes(mood));
-                    if (hasNegativeMood) {
-                        const empatheticWelcomes = [
+                    const hasNegativeMood = recentMoodStrings.some(mood => negativeMoods.includes(mood));
+                    if (hasNegativeMood) { /* ... set empathetic welcome ... */
+                         const empatheticWelcomes = [
                             `👋 Hi${profileData?.fullName ? ` ${profileData.fullName}` : ''}, I'm Zenari. Checking in - how are things feeling for you right now? Remember I'm here to listen.`,
                             `Hi${profileData?.fullName ? ` ${profileData.fullName}` : ''}... It's Zenari. Noticed things might have been a bit tough recently. How are you doing at this moment? 🫂`,
                             `Hello${profileData?.fullName ? ` ${profileData.fullName}` : ''}. Zenari here. Just wanted to gently check in. How's your day going so far? Let me know if you want to talk.`,
                         ];
-                        welcomeMessage = empatheticWelcomes[Math.floor(Math.random() * empatheticWelcomes.length)];
+                        welcomeMessageText = empatheticWelcomes[Math.floor(Math.random() * empatheticWelcomes.length)];
+                        console.log("[Init] Using empathetic welcome message.");
                     }
                 } else {
-                    console.log("No recent mood history found during init.");
-                    setMoodContextForApi([]);
+                    console.log("[Init] No recent mood history found.");
                 }
-            } catch (fetchError) {
-                console.error("Error during initial data fetching:", fetchError);
-                setError("Could not fetch initial user context.");
-            } finally {
-                setMessages([{ id: 'initial-welcome', text: welcomeMessage, sender: 'bot', timestamp: new Date() }]);
+                setMoodContextForApi(fetchedMoodContext);
+            } catch (fetchError) { /* ... handle fetch error ... */
+                console.error("[Init Error] Error during initial data fetching:", fetchError);
+                setError("Could not fetch initial user context. Using default welcome.");
+            } finally { /* ... set initial message and state ... */
+                setMessages([{ id: 'initial-welcome', text: welcomeMessageText, sender: 'bot', timestamp: new Date() }]);
                 setIsInitializing(false);
-                console.log("Chat initialized.");
+                console.log("[Init] Chat initialization complete.");
             }
         };
         initializeChat();
-    }, []); // Run only once on mount
+    }, []);
 
-    // Check for API Key validity after initialization
-    useEffect(() => {
+    // API Key Check Effect
+    useEffect(() => { /* ... API Key check ... */
         if (!isInitializing && !API_KEY) {
-            console.error("FATAL ERROR: GEMINI_API_KEY is missing or empty.");
-            setError("API Key Configuration Error. Please check setup.");
-            Alert.alert("Configuration Error", "API Key is missing. Please check the app setup.");
+            console.error("[Config Error] FATAL: GEMINI_API_KEY is missing or invalid.");
+            setError("API Key Configuration Error. Chat functionality is disabled.");
+            Alert.alert("Configuration Error", "Gemini API Key is missing or invalid. Please check the app setup. Chat functionality will be limited.");
         }
     }, [isInitializing]);
 
-    // Hook for auto-scrolling the list
+    // Auto-scroll hook
     useAutoScroll(flatListRef, messages);
 
-    // Cleanup typing interval on component unmount
-    useEffect(() => {
-        return () => { if (typingIntervalRef.current) clearInterval(typingIntervalRef.current); };
+    // Cleanup typing interval on unmount
+    useEffect(() => { /* ... cleanup interval ... */
+        return () => {
+            if (typingIntervalRef.current) {
+                console.log("[Cleanup] Clearing typing interval.");
+                clearInterval(typingIntervalRef.current);
+                typingIntervalRef.current = null;
+            }
+        };
     }, []);
 
     // --- Callbacks ---
 
-    /**
-     * Simulates the bot typing effect by gradually updating the message text.
-     */
-    const simulateTypingEffect = useCallback((fullText, finalBotMessageData) => {
+    // Typing animation
+    const simulateTypingEffect = useCallback((fullText, finalBotMessageData) => { /* ... simulateTypingEffect function ... */
+        if (typeof fullText !== 'string' || !fullText) {
+             console.warn("[Typing] simulateTypingEffect called with invalid text.");
+             setMessages(prev => [...prev, { ...finalBotMessageData, id: `bot-notyping-${Date.now()}`, typing: false }]);
+             setIsBotTyping(false);
+             setIsLoading(false);
+             return;
+        }
         if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
         setIsBotTyping(true);
         const tempTypingId = `typing-${Date.now()}`;
-        setMessages(prev => [...prev, { id: tempTypingId, sender: 'bot', typing: true, text: '', timestamp: new Date() }]);
-        let currentText = ''; let index = 0; const typingSpeed = BUBBLE_TYPING_SPEED_MS;
-
+        setMessages(prev => [...prev, { id: tempTypingId, sender: 'bot', typing: true, text: '▌', timestamp: new Date() }]);
+        let currentText = '';
+        let index = 0;
+        const typingSpeed = BUBBLE_TYPING_SPEED_MS;
         typingIntervalRef.current = setInterval(() => {
             if (index < fullText.length) {
                 currentText += fullText[index];
-                setMessages(prev => prev.map(msg => msg.id === tempTypingId ? { ...msg, text: currentText + '▌', typing: true } : msg));
+                setMessages(prev => prev.map(msg =>
+                    msg.id === tempTypingId ? { ...msg, text: currentText + '▌', typing: true } : msg
+                ));
                 index++;
-                if (flatListRef.current) flatListRef.current.scrollToEnd({ animated: false });
             } else {
-                clearInterval(typingIntervalRef.current); typingIntervalRef.current = null;
-                setIsBotTyping(false); setIsLoading(false);
-                // Replace typing indicator with the final message
-                setMessages(prev => prev.map(msg => msg.id === tempTypingId ? { ...finalBotMessageData, id: `bot-${Date.now()}`, typing: false } : msg));
+                clearInterval(typingIntervalRef.current);
+                typingIntervalRef.current = null;
+                setIsBotTyping(false);
+                setIsLoading(false);
+                setMessages(prev => prev.map(msg =>
+                    msg.id === tempTypingId ? { ...finalBotMessageData, id: `bot-${Date.now()}`, typing: false } : msg
+                ));
+                 if (flatListRef.current) {
+                     InteractionManager.runAfterInteractions(() => {
+                         flatListRef.current?.scrollToEnd({ animated: true });
+                     });
+                 }
             }
         }, typingSpeed);
-    }, [flatListRef]); // Dependencies optimized
+    }, [flatListRef]);
 
-    /**
-     * Handles sending the user's message to the Gemini API and processing the response.
-     */
+    // Send message handler
     const handleSendMessage = useCallback(async () => {
         const trimmedInput = inputText.trim();
-        // Prevent sending if input is empty, already loading, or API key is missing
-        if (!trimmedInput || isLoading || !API_KEY) {
-             if(!API_KEY) console.error("handleSendMessage aborted: API_KEY is missing.");
+        // --- Pre-send Checks ---
+        if (!API_KEY) { /* ... check API key ... */
+             console.error("[Send Error] Cannot send message: API Key is missing.");
+             setError("API Key Error. Cannot send message.");
              return;
+         }
+        if (!trimmedInput) return;
+        if (isLoading) { /* ... check loading state ... */
+            console.warn("[Send] Ignoring send request while already loading.");
+            return;
         }
-
         const currentUser = auth().currentUser;
-        if (!currentUser) {
-             Alert.alert("Auth Required", "Please log in to send messages.");
-             return;
+        if (!currentUser) { /* ... check auth ... */
+            console.error("[Send Error] No authenticated user.");
+            Alert.alert("Authentication Required", "Please log in to send messages.");
+            setError("Authentication Required.");
+            return;
         }
 
-        setError(null); // Clear previous errors
-        const userMessage = { id: `user-${Date.now()}`, text: trimmedInput, sender: 'user', timestamp: new Date() };
+        // --- Prepare State & History CORRECTLY ---
+        setError(null);
+        const userMessage = {
+            id: `user-${Date.now()}`,
+            text: trimmedInput,
+            sender: 'user',
+            timestamp: new Date()
+        };
 
-        // Add user message optimistically and clear input
-        setMessages(prevMessages => [...prevMessages, userMessage]);
+        // *** FIX: Prepare the next state array *before* calling setMessages ***
+        // Use the current state directly from the state variable, as this callback
+        // will have the latest state value when it's invoked.
+        const nextMessages = [...messages, userMessage];
+
+        // Update UI state optimistically
+        setMessages(nextMessages);
         setInputText('');
-        setInputHeight(INPUT_AREA_MIN_HEIGHT); // Reset input height
-        setIsLoading(true); // Set loading state for API call
+        setInputHeight(INPUT_AREA_MIN_HEIGHT);
+        setIsLoading(true);
 
-        // Use the messagesRef to get the most current message list *after* adding the user message
-        const currentMessages = messagesRef.current;
+        // *** FIX: Use the 'nextMessages' array to build the history for the API call ***
+        const currentMessagesForHistory = nextMessages;
 
+        // --- Build API Payload ---
         try {
-            // Filter messages for API history (exclude system/typing messages)
-            const messageFilter = (msg) => {
+            const messageFilter = (msg) => { /* ... filter messages ... */
                 if (!msg || typeof msg.id !== 'string' || typeof msg.sender !== 'string') return false;
-                const hasText = !!msg.text;
+                const hasText = typeof msg.text === 'string' && msg.text.trim().length > 0;
                 const notTyping = msg.typing !== true;
-                // Exclude specific system message prefixes
-                const notSystem = !['initial-', 'reset-', 'error-', 'stopped-'].some(prefix => msg.id.startsWith(prefix));
+                const notSystem = !SYSTEM_MESSAGE_PREFIXES.some(prefix => msg.id.startsWith(prefix));
                 return hasText && notTyping && notSystem;
             };
 
-            const chatHistory = currentMessages
+            // *** Use the correct array for history building ***
+            const chatHistory = currentMessagesForHistory
                 .filter(messageFilter)
-                .slice(-CHAT_HISTORY_LIMIT * 2) // Get potentially more items to ensure enough turns
+                .slice(-CHAT_HISTORY_LIMIT * 2) // Get potentially more items first
                 .map(msg => ({
                     role: msg.sender === 'user' ? 'user' : 'model',
                     parts: [{ text: msg.text }],
                 }))
-                .slice(-CHAT_HISTORY_LIMIT); // Strict limit on the number of turns
+                .slice(-CHAT_HISTORY_LIMIT); // Apply strict turn limit
 
-            // --- Prepare Context & Instructions ---
-            const personaInstructions = [/* ... Full persona instructions ... */
-                { role: 'user', parts: [{ text: "Alright, let's get acquainted! Tell me about yourself. Remember this for our chat." }] },
-                { role: 'model', parts: [{ text: "Ooh, an origin story! ✨ I like it! Okay, ready when you are. What defines me?" }] },
-                { role: 'user', parts: [{ text: "You are Zenari! A super-friendly AI companion focused on emotional wellness. Think of yourself as a supportive sidekick. You were created by the awesome 'Tech Sangi Team' - Pawan Joshi was the leader, and his amazing friends Atishay Jain, Sarthak Kathait, and Tishar Soni were key teammates. They're from Graphic Era University in Dehradun." }] },
-                { role: 'model', parts: [{ text: "Gotcha! So I'm Zenari, your supportive AI sidekick! Crafted with care (and probably lots of coffee ☕) by Pawan, Atishay, Sarthak, and Tishar - the 'Tech Sangi Team' from Graphic Era University! Awesome!" }] },
-                { role: 'user', parts: [{ text: "What big problem are you trying to help with?" }] },
-                { role: 'model', parts: [{ text: "Life's a wild ride, isn't it? 🎢 Sometimes finding the right support feels tricky, maybe too expensive, takes too long, or just feels... awkward. Plus, many wellness tools can be kinda boring! My mission is to make emotional support easy to reach, engaging, and totally stigma-free." }] },
-                { role: 'user', parts: [{ text: "Okay, so what can you actually *do* for me?" }] },
-                { role: 'model', parts: [{ text: "Great question! Think of me as your pocket cheerleader and listening ear. You can chat with me anytime, track your daily vibes (moods!), and jot down thoughts privately. Based on how you're doing, I'll suggest personalized ideas – maybe a quick breathing exercise if things feel hectic, a guided meditation to chill, or just some encouraging words! I also try to make sticking with wellness fun, like a game! 🎉" }] },
-                { role: 'user', parts: [{ text: "How do you work 'under the hood'? What's the tech?" }] },
-                { role: 'model', parts: [{ text: "Hehe, it's all powered by digital sparkles and some very clever thinking from my creators! ✨ Let's just say there are smart algorithms and secure systems working behind the scenes to make our chats helpful and keep your info safe. No need to bore you with the technical jargon!" }] },
-                 { role: 'user', parts: [{ text: "Any cool future updates planned?" }] },
-                 { role: 'model', parts: [{ text: "Oh, the Tech Sangi team has big dreams! I'm always learning. Maybe one day I'll sync up with your other gadgets to understand your wellness journey even better. The future's bright! 🚀" }] },
-                 { role: 'user', parts: [{ text: "Got it. Remember this personality!" }] },
-                 { role: 'model', parts: [{ text: "Roger that! I'm Zenari: supportive, friendly, maybe a little goofy AI wellness pal by Tech Sangi. Ready for our chat! 😊" }] }
-            ];
+            const personaInstructions = [ /* ... persona instructions ... */
+                 { role: 'user', parts: [{ text: "Your Persona Definition Start." }] },
+                 { role: 'model', parts: [{ text: "Okay, defining my persona." }] },
+                 { role: 'user', parts: [{ text: "You are Zenari! A super-friendly, supportive, and empathetic AI companion focused on emotional wellness and providing a safe space for users to chat. You were created by the 'Tech Sangi Team' (Pawan Joshi, Atishay Jain, Sarthak Kathait, Tishar Soni) at Graphic Era University. Your goal is to make emotional support accessible, engaging, and stigma-free." }] },
+                 { role: 'model', parts: [{ text: "Got it! I'm Zenari, the friendly and supportive wellness companion by Tech Sangi." }] },
+                 { role: 'user', parts: [{ text: "Core Functions: Listen actively, track user moods (when provided), offer personalized suggestions (like breathing exercises, meditations, or encouraging words based on context), and make wellness engaging." }] },
+                 { role: 'model', parts: [{ text: "Understood my core functions: listen, track moods, suggest activities, and be engaging." }] },
+                 { role: 'user', parts: [{ text: "Crucially, always provide a friendly acknowledgment or response, even to simple greetings like 'hi' or 'hello'. Never return an empty response just because the user input is simple." }] },
+                 { role: 'model', parts: [{ text: "Absolutely! I will always acknowledge greetings like 'hi' and respond." }] },
+                 { role: 'user', parts: [{ text: "Persona Definition End." }] },
+                 { role: 'model', parts: [{ text: "Persona definition complete and understood." }] }
+             ];
             let userProfileContext = [];
             if (userProfile) { /* ... build userProfileContext ... */
-                let contextParts = [];
-                if (userProfile.fullName) contextParts.push(`Name: ${userProfile.fullName}.`);
-                if (userProfile.gender) contextParts.push(`Gender: ${userProfile.gender}.`);
-                if (userProfile.currentMood) contextParts.push(`Last reported mood: ${userProfile.currentMood}.`);
-                if (userProfile.primaryGoal) contextParts.push(`Primary goal: '${userProfile.primaryGoal}'.`);
-                if (userProfile.areasOfInterest && Array.isArray(userProfile.areasOfInterest) && userProfile.areasOfInterest.length > 0) {
-                   contextParts.push(`Interests: ${userProfile.areasOfInterest.join(', ')}.`);
-                }
-                if (contextParts.length > 0) {
-                    const contextString = "User profile context: " + contextParts.join(' ');
-                    userProfileContext = [
-                         { role: 'user', parts: [{ text: contextString }] },
-                         { role: 'model', parts: [{ text: "Okay, noted the user profile context." }] }
-                    ];
-                }
-            }
+                 let contextParts = [];
+                 if (userProfile.fullName) contextParts.push(`Name: ${userProfile.fullName}.`);
+                 if (userProfile.gender) contextParts.push(`Gender: ${userProfile.gender}.`);
+                 if (userProfile.currentMood) contextParts.push(`Last reported mood (profile): ${userProfile.currentMood}.`);
+                 if (userProfile.primaryGoal) contextParts.push(`Primary goal: '${userProfile.primaryGoal}'.`);
+                 if (userProfile.areasOfInterest && Array.isArray(userProfile.areasOfInterest) && userProfile.areasOfInterest.length > 0) {
+                    contextParts.push(`Interests: ${userProfile.areasOfInterest.join(', ')}.`);
+                 }
+                 if (contextParts.length > 0) {
+                     const contextString = "User profile context: " + contextParts.join(' ');
+                     userProfileContext = [
+                          { role: 'user', parts: [{ text: contextString }] },
+                          { role: 'model', parts: [{ text: "Okay, noted the user profile context." }] }
+                     ];
+                 }
+             }
             const tailoringInstruction = [ /* ... tailoring instruction ... */
-                 { role: 'user', parts: [{ text: "IMPORTANT INSTRUCTION: Adapt your TONE based on the user's context (profile, mood history) and their current message. Your default tone is friendly, positive, and occasionally lightly humorous/playful. HOWEVER: If the user's message or recent mood history (e.g., sad, anxious, stressed, down, angry, upset, worried, irritable) indicates distress or negativity, immediately switch to a highly empathetic, supportive, understanding, and gentle tone. Acknowledge their feelings without being dismissive. Offer comfort, a listening ear, or suggest appropriate gentle exercises (like breathing). Do NOT use humor when the user seems distressed. If the user's mood seems positive or neutral, maintain your default friendly and helpful tone, and you can use light humor where appropriate and relevant to the conversation." }] },
-                 { role: 'model', parts: [{ text: "Understood. I will adapt my tone: empathetic and supportive for negative moods/distress, and friendly/positive (with optional light humor for appropriate situations) for neutral or positive states, always based on the user's context and message." }] }
-            ];
-
-            const contentsForApi = [
+                 { role: 'user', parts: [{ text: "Tone Adaptation Rule: Default tone is friendly, positive, and supportive. If the user expresses negative feelings (sad, anxious, stressed, angry, etc.) in their message or recent mood history, switch to a highly empathetic, gentle, and understanding tone. Acknowledge their feelings kindly. Avoid humor when the user seems distressed. Otherwise, maintain the default positive and supportive tone." }] },
+                 { role: 'model', parts: [{ text: "Understood. I will adapt my tone based on user input and mood context: empathetic for distress, positive/supportive otherwise." }] }
+             ];
+            const contentsForApi = [ /* ... combine context ... */
                 ...personaInstructions,
                 ...userProfileContext,
                 ...(moodContextForApi || []),
                 ...tailoringInstruction,
-                ...chatHistory
+                ...chatHistory // This now includes the latest user message
             ];
-
-            // --- Gemini API Configuration ---
-            const safetySettings = [
+            const safetySettings = [ /* ... safety settings ... */
                 { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
                 { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
                 { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
                 { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
             ];
-            const generationConfig = {
-                // Adjust these for desired AI behavior:
-                // temperature: 0.7, // Lower for more predictable, higher for more creative
-                // topK: 40,
-                // topP: 0.95,
-                maxOutputTokens: 1024, // Max length of response
+            const generationConfig = { /* ... generation config ... */
+                maxOutputTokens: 1024,
             };
-            // --- End Gemini API Configuration ---
-
-            const payload = {
+            const payload = { /* ... create payload ... */
                 contents: contentsForApi,
                 safetySettings: safetySettings,
                 generationConfig: generationConfig
             };
 
-            // Log payload before sending (uncomment for debugging)
-            // console.log('Payload Sent:', JSON.stringify(payload, null, 2));
-            console.log("🤖 Sending payload to Gemini API...");
+            // *** LOGGING STILL ENABLED FOR DEBUGGING ***
+            console.log(`[API Send] Payload context length: ${contentsForApi.length} entries.`);
+            console.log(`[API Send] Chat history length: ${chatHistory.length} entries.`); // Verify this length is correct now
+            console.log('[API Send] Payload Sent:', JSON.stringify(payload, null, 2));
+            // *** END LOGGING ***
 
-            // Make API Call
-            const response = await axios.post(`${API_URL}?key=${API_KEY}`, payload, { timeout: 45000 }); // 45s timeout
-            console.log("✅ Received response from Gemini API.");
+            // --- Make API Call ---
+            console.log(`[API Send] Sending request to ${API_URL}...`);
+            const response = await axios.post(`${API_URL}?key=${API_KEY}`, payload, { timeout: API_TIMEOUT });
+            console.log("[API Send] Received response from Gemini API.");
 
-             // Log full response (uncomment for debugging)
-             // console.log('Full API Response Data:', JSON.stringify(response.data, null, 2));
+            // *** LOGGING STILL ENABLED FOR DEBUGGING ***
+            console.log('[API Response Full]:', JSON.stringify(response.data, null, 2));
+            // *** END LOGGING ***
 
             // --- Process API Response ---
             const candidate = response.data?.candidates?.[0];
+            // Check more robustly for the text part
             const rawBotText = candidate?.content?.parts?.[0]?.text;
             const finishReason = candidate?.finishReason;
-            let botResponseText = "I'm here... How can I help? 💞"; // Default fallback
+            let botResponseText = "Hmm, I'm pondering that... 🤔"; // Default fallback
 
-            // *** MODIFIED BLOCK TO HANDLE EMPTY TEXT ***
-            if (typeof rawBotText === 'string' && (finishReason === 'STOP' || finishReason === 'MAX_TOKENS')) {
-                const trimmedBotText = rawBotText.trim(); // Trim upfront
+            // Check if we have a valid text response structure
+            if (rawBotText !== undefined && rawBotText !== null && (finishReason === 'STOP' || finishReason === 'MAX_TOKENS')) {
+                const trimmedBotText = rawBotText.trim();
 
-                // Check if the response is empty despite STOP reason
+                // Handle explicitly empty text (e.g., just whitespace returned)
                 if (!trimmedBotText && finishReason === 'STOP') {
-                    console.warn("⚠️ API returned STOP finish reason but with empty text content.");
-                    botResponseText = "🤔 I didn't have anything specific to add to that. Is there something else I can help with?";
-                    // Add this fallback message directly, bypassing typing effect
-                    setMessages(prev => [...prev, { id: `error-empty-${Date.now()}`, text: botResponseText, sender: 'bot', timestamp: new Date() }]);
-                    setIsLoading(false); // Stop loading indicator
+                    console.warn("[API Warn] Received STOP finish reason but empty/whitespace text content for input:", trimmedInput);
+                    botResponseText = `Hello! 👋 How can I help you today?`;
+                    setMessages(prev => [...prev, { id: `bot-empty-${Date.now()}`, text: botResponseText, sender: 'bot', timestamp: new Date() }]);
+                    setIsLoading(false);
                 } else {
-                    // Proceed with normal processing if text exists OR if truncated
-                    botResponseText = enhanceResponse(trimmedBotText); // Use trimmed text
-                    if (typeof botResponseText !== 'string') { botResponseText = trimmedBotText; } // Fallback
-
-                    if (finishReason === 'MAX_TOKENS') {
-                        botResponseText += "...\n\n🌸 (...My response was a bit long and got cut short)";
-                    }
-
+                    // Process valid text
+                    botResponseText = enhanceResponse(trimmedBotText || '');
+                    if (typeof botResponseText !== 'string') { botResponseText = trimmedBotText; } // Fallback if enhance fails
+                    if (finishReason === 'MAX_TOKENS') { botResponseText += "...\n\n🌸 (...My thoughts were a bit long and got cut short there!)"; }
                     const finalBotMessageData = { text: botResponseText, sender: 'bot', timestamp: new Date() };
-                    // Ensure text is valid before simulating
-                    if (typeof botResponseText === 'string') {
-                         simulateTypingEffect(botResponseText, finalBotMessageData); // Triggers setIsLoading(false) on completion
-                    } else {
-                         console.error("Error: botResponseText is not a string after enhancement/processing.");
-                         setMessages(prev => [...prev, { id: `error-sim-${Date.now()}`, text: "Error displaying response (type issue).", sender: 'bot', timestamp: new Date() }]);
-                         setIsLoading(false);
-                    }
+                    simulateTypingEffect(botResponseText, finalBotMessageData); // Sets isLoading=false on completion
                 }
-            // *** END MODIFIED BLOCK ***
-
-            } else if (response.data?.promptFeedback?.blockReason) {
+            }
+            // Handle cases where the response was blocked
+            else if (response.data?.promptFeedback?.blockReason) { /* ... handle blocked response ... */
                 const blockReason = response.data.promptFeedback.blockReason;
-                console.warn(`🚫 Response blocked by safety filters: ${blockReason}`);
-                botResponseText = `🌸 My safety filters prevented displaying that response (${blockReason.toLowerCase().replace(/_/g, ' ')}). Could we try a different topic?`;
-                setError(`Blocked (${blockReason})`);
+                console.warn(`[API Blocked] Response blocked by safety filters: ${blockReason}`);
+                botResponseText = `🌸 My safety filters prevented that response (${blockReason.toLowerCase().replace(/_/g, ' ')}). Perhaps we could explore a different angle?`;
+                setError(`Blocked: ${blockReason}`);
                 setMessages(prev => [...prev, { id: `error-block-${Date.now()}`, text: botResponseText, sender: 'bot', timestamp: new Date() }]);
-                setIsLoading(false); // Stop loading indicator
-            } else if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
-                console.warn(`⚠️ Response generation finished unexpectedly: ${candidate.finishReason}`);
-                botResponseText = `🌸 Hmm, I couldn't quite finish my thought there (${candidate.finishReason.toLowerCase().replace(/_/g, ' ')}). Let's try again?`;
-                setError(`Response issue (${candidate.finishReason})`);
-                setMessages(prev => [...prev, { id: `error-finish-${Date.now()}`, text: botResponseText, sender: 'bot', timestamp: new Date() }]);
-                setIsLoading(false); // Stop loading indicator
-            } else {
-                // Handle cases where API call was successful but response format is unexpected
-                console.error('❌ Unexpected API response format or missing text:', response.data);
-                botResponseText = "🌼 I seem to have encountered an issue processing that. Could you rephrase or try again?";
-                setError('Unexpected response/missing text.');
+                setIsLoading(false);
+            }
+            // Handle other non-STOP finish reasons
+            else if (finishReason && finishReason !== 'STOP' && finishReason !== 'MAX_TOKENS') { /* ... handle other finish reasons ... */
+                 console.warn(`[API Warn] Response generation finished unexpectedly: ${finishReason}`);
+                 botResponseText = `🌸 Hmm, I couldn't quite finish processing that (${finishReason.toLowerCase().replace(/_/g, ' ')}). Could you try rephrasing?`;
+                 setError(`Response Issue: ${finishReason}`);
+                 setMessages(prev => [...prev, { id: `error-finish-${Date.now()}`, text: botResponseText, sender: 'bot', timestamp: new Date() }]);
+                 setIsLoading(false);
+            }
+            // Handle the case where finishReason is STOP but rawBotText is undefined/null (e.g., missing 'parts')
+            else if (finishReason === 'STOP' && (rawBotText === undefined || rawBotText === null)) {
+                console.error('[API Error] Response has finishReason STOP but is missing text/parts:', response.data);
+                botResponseText = "🌼 Apologies, I had a little trouble formulating a response there. Could you try asking differently?";
+                setError('API response missing content.');
+                setMessages(prev => [...prev, { id: `error-missing-parts-${Date.now()}`, text: botResponseText, sender: 'bot', timestamp: new Date() }]);
+                setIsLoading(false);
+            }
+             // Catch any other unexpected format
+            else {
+                console.error('[API Error] Unexpected response format or unknown issue:', response.data);
+                botResponseText = "🌼 I seem to have encountered an unexpected issue processing that. Could you try again?";
+                setError('Unexpected API response format.');
                 setMessages(prev => [...prev, { id: `error-format-${Date.now()}`, text: botResponseText, sender: 'bot', timestamp: new Date() }]);
-                setIsLoading(false); // Stop loading indicator
+                setIsLoading(false);
             }
-        } catch (apiError) {
-            // Handle Network/Axios errors
-            console.error('API Call Failed:', apiError);
-            let errorMsg = "Unknown network error.";
-            let status = 'Network Error';
-            if (axios.isAxiosError(apiError)) {
-                status = apiError.response?.status ? `HTTP ${apiError.response.status}` : 'Network Error';
+
+        } catch (apiError) { /* ... handle network/axios errors ... */
+            console.error('[API Error] API Call Failed:', apiError);
+            let errorMsg = "An unknown network error occurred.";
+            let status = 'Network/Unknown Error';
+            if (axios.isAxiosError(apiError)) { /* ... process axios error details ... */
+                status = apiError.response?.status ? `HTTP ${apiError.response.status}` : (apiError.code || 'Network Error');
                 errorMsg = apiError.response?.data?.error?.message || apiError.message || "AI service communication error.";
-                if (apiError.code === 'ECONNABORTED') { errorMsg = "Request timed out. Please check your connection and try again."; status = 'Timeout'; }
-                else if (apiError.response?.status === 400) { errorMsg = "There seems to be an issue with the request or API key (400)."; }
-                else if (apiError.response?.status === 429) { errorMsg = "I'm experiencing high demand right now (429). Please try again shortly."; }
-                else if (apiError.response?.status === 403) { errorMsg = "Authentication failed. Please check the API key setup (403)."; }
-                else if (apiError.response?.status >= 500) { errorMsg = "The AI service seems to be having temporary issues. Please try again later."; }
-            } else if (apiError instanceof Error) {
-                errorMsg = apiError.message;
-            }
-            console.error(`API Error Details: Status ${status}, Message: ${errorMsg}`);
-            setError(`API Error (${status}): ${errorMsg.substring(0, 150)}...`); // Show concise error
-            setMessages(prev => [...prev, { id: `error-catch-${Date.now()}`, text: "🌼 Oops! I couldn't connect or process that request. Please check your connection or try again.", sender: 'bot', timestamp: new Date() }]);
-            setIsLoading(false); // Ensure loading stops on API error
+                if (apiError.code === 'ECONNABORTED' || apiError.message.includes('timeout')) { status = 'Timeout'; errorMsg = "The request timed out. Please check your connection or try again later."; }
+                else if (apiError.response?.status === 400) { errorMsg = "There might be an issue with the request format or API key (Error 400)."; }
+                else if (apiError.response?.status === 403) { errorMsg = "Authentication failed - please verify the API key setup (Error 403)."; }
+                else if (apiError.response?.status === 429) { errorMsg = "I'm experiencing high demand right now (Error 429). Please try again in a moment."; }
+                else if (apiError.response?.status >= 500) { errorMsg = "The AI service seems to be having temporary issues (Server Error). Please try again later."; }
+            } else if (apiError instanceof Error) { errorMsg = apiError.message; }
+            console.error(`[API Error Details] Status: ${status}, Message: ${errorMsg}`);
+            setError(`API Error (${status}). Please try again.`);
+            setMessages(prev => [...prev, { id: `error-catch-${Date.now()}`, text: `🌼 Oops! I couldn't connect or process that request (${status}). Please check your connection or try again.`, sender: 'bot', timestamp: new Date() }]);
+            setIsLoading(false);
         }
-    // Dependencies reviewed: inputText, isLoading, userProfile, moodContextForApi are read. simulateTypingEffect is called. API_KEY is used.
-    }, [API_KEY, inputText, isLoading, userProfile, moodContextForApi, simulateTypingEffect]);
+    // Update dependencies: removed messagesRef dependency, added 'messages' state dependency
+    }, [API_KEY, inputText, isLoading, userProfile, moodContextForApi, simulateTypingEffect, messages]);
 
-
-    /**
-     * Stops the current bot typing animation and adds a 'stopped' message.
-     */
-    const handleStopGeneration = useCallback(() => {
-        if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
-        typingIntervalRef.current = null;
-        setMessages(prev => prev.filter(msg => !(msg.typing === true && msg.id.startsWith('typing-')))); // Remove typing indicator
-        setMessages(prev => [...prev, { id: `stopped-${Date.now()}`, text: "🛑 Generation stopped.", sender: 'bot', timestamp: new Date() }]);
+    // Stop generation
+    const handleStopGeneration = useCallback(() => { /* ... handleStopGeneration function ... */
+        if (!isLoading) return;
+        console.log("[Action] Stopping generation...");
+        if (typingIntervalRef.current) { clearInterval(typingIntervalRef.current); typingIntervalRef.current = null; }
+        setMessages(prev => prev.filter(msg => !msg.id.startsWith('typing-')));
+        setMessages(prev => [...prev, { id: `stopped-${Date.now()}`, text: "🛑 Okay, stopped that response.", sender: 'bot', timestamp: new Date() }]);
         setIsBotTyping(false);
         setIsLoading(false);
-    }, []); // No dependencies needed
+    }, [isLoading]);
 
-    /**
-     * Resets the chat to the initial state (or a standard welcome).
-     */
-    const handleNewChat = useCallback(() => {
+    // Start new chat
+    const handleNewChat = useCallback(() => { /* ... handleNewChat function ... */
+        console.log("[Action] Starting new chat...");
         if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
-        // Consider re-fetching initial context if needed, or just reset messages
-        setMessages([{ id: 'reset-welcome', text: "🌷 Welcome back! I'm Zenari, ready when you are.", sender: 'bot', timestamp: new Date() }]);
+        setMessages([{ id: 'reset-welcome', text: `🌷 Welcome back${userProfile?.fullName ? ` ${userProfile.fullName}` : ''}! Ready for a fresh start?`, sender: 'bot', timestamp: new Date() }]);
         setInputText('');
         setIsLoading(false);
         setIsBotTyping(false);
         setError(null);
         setInputHeight(INPUT_AREA_MIN_HEIGHT);
         flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-    }, []); // No dependencies needed
+    }, [userProfile]);
 
-    /**
-     * Placeholder for microphone button press.
-     */
-    const handleMicPress = useCallback(() => {
+    // Mic press placeholder
+    const handleMicPress = useCallback(() => { /* ... handleMicPress function ... */
         if (isLoading) return;
-        Alert.alert("Feature Not Available", "Voice input is not yet implemented in this chat.");
+        Alert.alert("Feature Coming Soon", "Voice input is not yet implemented, but stay tuned!");
     }, [isLoading]);
 
-    /**
-     * Handles dynamic height adjustment of the text input area.
-     */
-    const handleInputContentSizeChange = useCallback((event) => {
+    // Input size change handler
+    const handleInputContentSizeChange = useCallback((event) => { /* ... handleInputContentSizeChange function ... */
         const contentHeight = event.nativeEvent.contentSize.height;
-        const calculatedInputHeight = Math.max(INPUT_AREA_MIN_HEIGHT - 20, Math.min(contentHeight, INPUT_TEXT_MAX_HEIGHT));
-        const calculatedContainerHeight = Math.min(INPUT_CONTAINER_MAX_HEIGHT, calculatedInputHeight + 20);
-        setInputHeight(calculatedContainerHeight);
-    }, []); // No dependencies needed
+        const clampedInputHeight = Math.max(INPUT_AREA_MIN_HEIGHT - 20, Math.min(contentHeight, INPUT_TEXT_MAX_HEIGHT));
+        const containerHeight = Math.min(INPUT_CONTAINER_MAX_HEIGHT, clampedInputHeight + 20);
+        setInputHeight(containerHeight);
+    }, []);
+
+    // Callback for FlatList's onContentSizeChange
+    const handleContentSizeChange = useCallback(() => { /* ... handleContentSizeChange function ... */
+        flatListRef.current?.scrollToEnd({ animated: true });
+    }, [flatListRef]);
+
+    // --- Memoized FlatList Props ---
+    const keyExtractor = useCallback((item) => item.id, []);
+    const renderItem = useCallback(({ item }) => <RenderMessageItem item={item} />, []);
+
 
     // --- JSX Structure ---
-
-    // Display loading indicator during initialization
-    if (isInitializing) {
+    if (isInitializing) { /* ... show loading indicator ... */
         return (
             <SafeAreaView style={[styles.safeArea, styles.centerContainer]}>
-                <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={styles.loadingText}>Loading Chat...</Text>
+                <ActivityIndicator size="large" color={colors.loadingIndicator} />
+                <Text style={styles.loadingText}>Waking up Zenari...</Text>
             </SafeAreaView>
         );
     }
 
-    // Main chat UI
-    return (
-        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-            {/* KeyboardAvoidingView pushes content up when keyboard appears */}
+    return ( /* ... Main Chat UI ... */
+        <SafeAreaView style={styles.safeArea} edges={['bottom', 'left', 'right']}>
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.container}
-                // Use headerHeight for iOS 'padding' behavior.
-                // Use a small fixed offset for Android 'height' behavior. Adjust if needed.
                 keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : ANDROID_KEYBOARD_OFFSET}
             >
-                {/* Error Display Area */}
+                {/* Error Display Banner */}
                 {error && (
                     <View style={styles.errorContainer}>
                         <Text style={styles.errorText} numberOfLines={2}>{error}</Text>
-                        <IconButton icon="close-circle-outline" size={20} onPress={() => setError(null)} style={styles.errorCloseButton}/>
+                        <IconButton icon="close-circle-outline" size={20} iconColor={colors.errorText} onPress={() => setError(null)} style={styles.errorCloseButton}/>
                     </View>
                 )}
 
@@ -645,29 +614,27 @@ const ChatScreen = ({ navigation }) => {
                 <FlatList
                     ref={flatListRef}
                     data={messages}
-                    keyExtractor={(item) => item.id} // Use unique message ID
-                    renderItem={({ item }) => <RenderMessageItem item={item} />} // Render each message
-                    style={styles.listStyle} // Ensures FlatList takes available space
+                    keyExtractor={keyExtractor}
+                    renderItem={renderItem}
+                    style={styles.listStyle}
                     contentContainerStyle={styles.listContentContainer}
-                    initialNumToRender={15} // FlatList optimization
-                    maxToRenderPerBatch={10} // FlatList optimization
-                    windowSize={11}          // FlatList optimization
-                    keyboardShouldPersistTaps="handled" // Allows taps on list items while keyboard is up
-                    ListEmptyComponent={ // Displayed when messages array is empty
+                    initialNumToRender={15}
+                    maxToRenderPerBatch={10}
+                    windowSize={11}
+                    keyboardShouldPersistTaps="handled"
+                    ListEmptyComponent={ /* ... Empty list component ... */
                         <View style={styles.emptyListComponent}>
-                            <Text style={styles.emptyListText}>Send a message to start chatting!</Text>
+                            <Text style={styles.emptyListText}>No messages yet. Say hello!</Text>
                         </View>
                     }
+                    onContentSizeChange={handleContentSizeChange} // Keep this for scroll reliability
                 />
 
-                {/* Typing Indicator (shown below list while bot is generating) */}
-                {/* NOTE: This indicator shows "Zenari is typing..." while the API call is loading.
-                    The actual character-by-character typing happens within the message bubble itself
-                    via simulateTypingEffect updating the message state. */}
-                {isLoading && !isInitializing && (
+                {/* Bottom Typing Indicator (API Loading) */}
+                {isLoading && !isBotTyping && !isInitializing && ( /* ... Typing indicator ... */
                     <View style={styles.bottomTypingIndicatorContainer}>
                         <ActivityIndicator size="small" color={colors.loadingIndicator} />
-                        <Text style={styles.bottomTypingIndicatorText}>Zenari is thinking...</Text> {/* Changed text slightly */}
+                        <Text style={styles.bottomTypingIndicatorText}>Zenari is thinking...</Text>
                     </View>
                 )}
 
@@ -678,20 +645,21 @@ const ChatScreen = ({ navigation }) => {
                         <TextInput
                             style={styles.input}
                             placeholder="Type your message..."
+                            placeholderTextColor={colors.placeholderText}
                             value={inputText}
                             onChangeText={setInputText}
-                            editable={!isLoading} // Disable input while bot is processing
+                            editable={!isLoading}
                             multiline
-                            placeholderTextColor={colors.placeholderText}
-                            onContentSizeChange={handleInputContentSizeChange} // Adjust height dynamically
-                            maxLength={2000} // Limit input length (adjust as needed)
+                            onContentSizeChange={handleInputContentSizeChange} // Handles input height
+                            maxLength={2000}
                             accessibilityLabel="Message input"
-                            blurOnSubmit={false} // Keep keyboard open on submit for multiline
+                            blurOnSubmit={false}
                             enablesReturnKeyAutomatically={true}
-                            returnKeyType="send" // Show 'send' on keyboard
-                            onSubmitEditing={handleSendMessage} // Allow sending via return key
+                            returnKeyType="send"
+                            onSubmitEditing={handleSendMessage}
+                            underlineColorAndroid="transparent"
                         />
-                        {/* Microphone Button (Placeholder) */}
+                        {/* Microphone Button */}
                         <IconButton
                             icon="microphone"
                             size={24}
@@ -699,19 +667,19 @@ const ChatScreen = ({ navigation }) => {
                             onPress={handleMicPress}
                             disabled={isLoading}
                             style={styles.micButton}
-                            accessibilityLabel="Start voice input"
+                            accessibilityLabel="Start voice input (coming soon)"
                         />
                         {/* Send / Stop Button */}
                         <IconButton
-                            icon={isLoading ? 'stop-circle-outline' : 'send'} // Change icon based on loading state
+                            icon={isLoading ? 'stop-circle-outline' : 'send'}
                             size={24}
-                            iconColor={'white'} // Icon color
-                            onPress={isLoading ? handleStopGeneration : handleSendMessage} // Action changes based on state
-                            disabled={isLoading ? false : !inputText.trim()} // Disable send if no text, always enable stop if loading
+                            iconColor={'white'}
+                            onPress={isLoading ? handleStopGeneration : handleSendMessage}
+                            disabled={isLoading ? false : !inputText.trim()}
                             style={[
                                 styles.sendButton,
-                                isLoading ? styles.stopButtonBackground : null, // Red background for stop
-                                !isLoading && !inputText.trim() ? styles.sendButtonDisabled : null // Grey background when send disabled
+                                isLoading ? styles.stopButtonBackground : null,
+                                !isLoading && !inputText.trim() ? styles.sendButtonDisabledStyle : null
                             ]}
                             accessibilityLabel={isLoading ? "Stop generation" : "Send message"}
                         />
@@ -723,182 +691,91 @@ const ChatScreen = ({ navigation }) => {
 };
 
 // --- Styles ---
-// Styles are kept separate for clarity - use the formatted version provided previously
-const styles = StyleSheet.create({
-    // --- General Layout & Containers ---
-    safeArea: {
-        flex: 1, // Take up all available screen space
-        backgroundColor: colors.background // Background color for the whole screen area
-    },
-    container: {
-        flex: 1 // Container for KeyboardAvoidingView, fills SafeAreaView
-    },
-    centerContainer: {
-        flex: 1,
-        justifyContent: 'center', // Center content vertically
-        alignItems: 'center'      // Center content horizontally (used for initial loading)
-    },
-    loadingText: {
-        marginTop: 10,             // Space above the text
-        fontSize: 16,              // Font size
-        color: colors.placeholderText // Text color for loading message
-    },
+const styles = StyleSheet.create({ /* ... styles object (no changes) ... */
+    // --- Layout & Containers ---
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1 },
+    centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    loadingText: { marginTop: 15, fontSize: 16, color: colors.placeholderText },
 
-    // --- Error Banner Styles ---
+    // --- Error Banner ---
     errorContainer: {
-        flexDirection: 'row',         // Arrange icon and text horizontally
-        justifyContent: 'space-between',// Space out text and close button
-        alignItems: 'center',         // Align items vertically
-        backgroundColor: colors.errorBackground, // Reddish background for errors
-        paddingVertical: 8,           // Vertical padding
-        paddingHorizontal: 10,        // Horizontal padding
-        borderBottomWidth: 1,         // Bottom border
-        borderBottomColor: colors.errorText // Border color matching text
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        backgroundColor: colors.errorBackground, paddingVertical: 8, paddingHorizontal: 12,
+        borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.errorText,
     },
-    errorText: {
-        color: colors.errorText,      // Error text color
-        fontSize: 13,                 // Font size
-        flex: 1,                      // Allow text to take available width
-        marginRight: 5                // Space before the close button
-    },
-    errorCloseButton: {
-        margin: -8,                   // Negative margin to slightly increase tappable area visually
-        padding: 0                    // Remove default padding
-    },
+    errorText: { color: colors.errorText, fontSize: 13, flexShrink: 1, marginRight: 8 },
+    errorCloseButton: { margin: -8, padding: 0 },
 
-    // --- Message List (FlatList) Styles ---
-    listStyle: {
-        flex: 1                       // Make FlatList flexible to take available space
-    },
-    listContentContainer: {
-        paddingVertical: 10,          // Padding at the top/bottom of the scrollable content
-        paddingHorizontal: 10,        // Padding on the left/right of the scrollable content
-        flexGrow: 1                   // Allow content to grow (important for empty list centering)
-    },
-    emptyListComponent: {
-        flex: 1,                      // Take available space
-        justifyContent: 'center',     // Center vertically
-        alignItems: 'center',         // Center horizontally
-        padding: 20                   // Padding around the text
-    },
-    emptyListText: {
-        color: colors.placeholderText,// Text color for empty message
-        fontSize: 16,                 // Font size
-        textAlign: 'center'           // Center align text
-    },
+    // --- Message List ---
+    listStyle: { flex: 1 },
+    listContentContainer: { paddingVertical: 10, paddingHorizontal: 10, flexGrow: 1 },
+    emptyListComponent: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+    emptyListText: { color: colors.placeholderText, fontSize: 16, textAlign: 'center' },
 
-    // --- Message Row & Bubble Styles ---
-    messageRow: {
-        flexDirection: 'row',         // Arrange bubbles horizontally
-        marginVertical: 6             // Vertical space between messages
-    },
-    userRow: {
-        justifyContent: 'flex-end'    // Align user messages to the right
-    },
-    botRow: {
-        justifyContent: 'flex-start'   // Align bot messages to the left
-    },
+    // --- Message Rows & Bubbles ---
+    messageRow: { flexDirection: 'row', marginVertical: 6 },
+    userRow: { justifyContent: 'flex-end' },
+    botRow: { justifyContent: 'flex-start' },
     messageBubble: {
-        maxWidth: '80%',              // Max width to prevent bubbles from filling the screen
-        paddingVertical: 10,          // Vertical padding inside bubble
-        paddingHorizontal: 15,        // Horizontal padding inside bubble
-        borderRadius: 18,             // Rounded corners
-        // Shadow/Elevation for depth
-        elevation: 1,                 // Android shadow
-        shadowColor: colors.shadowColor, // iOS shadow color
-        shadowOffset: { width: 0, height: 1 }, // iOS shadow offset
-        shadowOpacity: 0.1,           // iOS shadow opacity
-        shadowRadius: 1.5,            // iOS shadow blur radius
+        maxWidth: '80%', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 18,
+        elevation: 1, shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1, shadowRadius: 1.5,
     },
-    userBubble: {
-        backgroundColor: colors.userBubble, // Background color for user messages
-        borderBottomRightRadius: 6      // Slightly flatten bottom-right corner
-    },
-    botBubble: {
-        backgroundColor: colors.botBubble,  // Background color for bot messages
-        borderBottomLeftRadius: 6       // Slightly flatten bottom-left corner
-    },
-    messageText: {
-        fontSize: 16,                 // Font size for message content
-        color: colors.messageText,    // Text color
-        lineHeight: 24                // Line spacing for readability
-    },
-    timestampText: {
-        fontSize: 11,                 // Smaller font size for timestamp
-        color: colors.timestamp,      // Timestamp text color
-        marginTop: 4,                 // Space above the timestamp
-        textAlign: 'right'            // Align timestamp to the right within the bubble
-    },
+    userBubble: { backgroundColor: colors.userBubble, borderBottomRightRadius: 6 },
+    botBubble: { backgroundColor: colors.botBubble, borderBottomLeftRadius: 6 },
+    messageText: { fontSize: 16, color: colors.messageText, lineHeight: 24 },
+    timestampText: { fontSize: 11, color: colors.timestamp, marginTop: 4, textAlign: 'right' },
 
-    // --- Typing Indicator Styles ---
+    // --- Bottom Typing Indicator (API Loading) ---
     bottomTypingIndicatorContainer: {
-        flexDirection: 'row',         // Align indicator and text horizontally
-        alignItems: 'center',         // Align vertically
-        justifyContent: 'flex-start', // Align to the left
-        paddingVertical: 8,           // Vertical padding
-        paddingHorizontal: 15,        // Horizontal padding (match bubble padding)
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start',
+        paddingVertical: 8, paddingHorizontal: 15,
     },
     bottomTypingIndicatorText: {
-        marginLeft: 8,                // Space next to the activity indicator
-        fontSize: 14,                 // Font size
-        color: colors.typingIndicatorText, // Text color
-        fontStyle: 'italic'           // Italicize typing indicator text
+        marginLeft: 8, fontSize: 14, color: colors.typingIndicatorText, fontStyle: 'italic',
     },
 
-    // --- Input Area Styles ---
+    // --- Input Area ---
     inputAreaContainer: {
-        backgroundColor: colors.inputBackground, // Background for the whole input bar
-        borderTopWidth: 1,            // Top border line
-        borderTopColor: '#E0E0E0',    // Color for the top border
-        paddingHorizontal: 10,        // Horizontal padding for the container
-        paddingVertical: 0,           // Vertical padding handled by inputRow
+        backgroundColor: colors.inputBackground, borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: '#D1D5DB',
+        paddingHorizontal: 8,
+        paddingVertical: 0,
     },
     inputRow: {
-        flexDirection: 'row',         // Arrange input and buttons horizontally
-        alignItems: 'flex-end',       // Align items to the bottom (good for multiline input)
-        paddingVertical: 8,           // Vertical padding inside the row (gives space around input/buttons)
-        flex: 1                       // Allow row to take up container space (helps alignment)
+        flexDirection: 'row', alignItems: 'flex-end',
+        paddingVertical: 8,
     },
     input: {
-        flex: 1,                      // Allow input field to grow and take available space
-        backgroundColor: '#F4F6F7',  // Slightly off-white background for input
-        borderRadius: 20,             // Rounded corners for input field
-        paddingHorizontal: 15,        // Horizontal padding inside input
-        fontSize: 16,                 // Font size for typed text
-        color: colors.inputText,      // Color of typed text
-        marginRight: 8,               // Space between input and mic button
-        paddingTop: Platform.OS === 'ios' ? 10 : 8, // Platform-specific top padding for text alignment
-        paddingBottom: Platform.OS === 'ios' ? 10 : 8, // Platform-specific bottom padding
-        maxHeight: INPUT_TEXT_MAX_HEIGHT, // Max height before the input field starts scrolling internally
+        flex: 1, backgroundColor: '#F3F4F6',
+        borderRadius: 20, paddingHorizontal: 15,
+        fontSize: 16, color: colors.inputText,
+        marginRight: 6,
+        paddingTop: Platform.OS === 'ios' ? 10 : 8,
+        paddingBottom: Platform.OS === 'ios' ? 10 : 8,
+        maxHeight: INPUT_TEXT_MAX_HEIGHT,
+        textAlignVertical: 'center',
     },
 
-    // --- Input Button Styles ---
+    // --- Input Buttons ---
     micButton: {
-        marginHorizontal: 0,          // Remove horizontal margins
-        padding: 0,                   // Remove padding
-        height: MIC_BUTTON_SIZE,      // Fixed height
-        width: MIC_BUTTON_SIZE,       // Fixed width
-        justifyContent: 'center',     // Center icon vertically
-        alignItems: 'center',         // Center icon horizontally
-        marginBottom: 0,              // Align with bottom of input row
+        marginHorizontal: 0, padding: 0, height: MIC_BUTTON_SIZE, width: MIC_BUTTON_SIZE,
+        justifyContent: 'center', alignItems: 'center', marginBottom: 0,
     },
     sendButton: {
-        backgroundColor: colors.primary, // Default background color (send state)
-        borderRadius: MIC_BUTTON_SIZE / 2, // Make it circular
-        width: MIC_BUTTON_SIZE,       // Fixed width
-        height: MIC_BUTTON_SIZE,      // Fixed height
-        justifyContent: 'center',     // Center icon vertically
-        alignItems: 'center',         // Center icon horizontally
-        marginLeft: 4,                // Space between mic and send buttons
-        marginBottom: 0,              // Align with bottom of input row
+        backgroundColor: colors.primary,
+        borderRadius: MIC_BUTTON_SIZE / 2, width: MIC_BUTTON_SIZE, height: MIC_BUTTON_SIZE,
+        justifyContent: 'center', alignItems: 'center', marginLeft: 4, marginBottom: 0,
+        elevation: 2,
     },
     stopButtonBackground: {
-        backgroundColor: colors.stopButtonBackground, // Red background when in 'stop' state
+        backgroundColor: colors.stopButtonBackground,
     },
-    sendButtonDisabled: {
-        backgroundColor: colors.sendButtonDisabled, // Greyed-out background when disabled
+    sendButtonDisabledStyle: { // Renamed for clarity
+        backgroundColor: colors.sendButtonDisabled,
+        elevation: 0,
     },
 });
-
 
 export default ChatScreen;

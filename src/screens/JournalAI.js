@@ -20,8 +20,40 @@ import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import RNFS from 'react-native-fs'; // For defining save path
 
 // --- Constants ---
-const COLORS = { /* ... Colors ... */
-    background: '#F7F9FC', primary: '#A3A8F0', primaryLight: '#D0D3FA', secondary: '#C2F0F0', secondaryLight: '#E0F7FA', accent: '#F0E4F8', accentLight: '#F8F0FC', text: '#34495E', textSecondary: '#8A95B5', lightText: '#AEB8D5', white: '#FFFFFF', cardBackground: '#FFFFFF', border: '#E0E5F1', error: '#E74C3C', disabled: '#B0BEC5', happy: '#FFDA63', sad: '#87CEEB', calm: '#A3A8F0', neutral: '#D0D3FA', anxious: '#FFAC81', stressed: '#C3A9F4', grateful: '#FFD700', tagBackground: '#E0F7FA', suggestionBackground: '#F8F0FC', recording: '#E74C3C', playButton: '#4CAF50', deleteButton: '#E57373',
+// --- NEW Calming Color Scheme ---
+const COLORS = {
+    background: '#F4F8F7', // Very light, slightly cool grey
+    primary: '#6AB7A8',    // Muted Teal/Turquoise
+    primaryLight: '#A8D8CF', // Lighter Teal
+    secondary: '#F7D9AE',  // Soft Peach/Orange Accent
+    secondaryLight: '#FBEFDD', // Very Light Peach
+    accent: '#A8A6CE',    // Muted Lavender (Used for prompts/accents)
+    accentLight: '#DCDAF8', // Very Light Lavender
+
+    text: '#3A506B',       // Dark Slate Blue (Good contrast)
+    textSecondary: '#6B819E', // Medium Slate Blue
+    lightText: '#A3B1C6',   // Light Slate Blue (Placeholders)
+    white: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    border: '#D8E2EB',       // Light Grey-Blue Border
+    error: '#E57373',       // Soft Red
+    disabled: '#B0BEC5',     // Blue Grey (Standard disabled)
+
+    // Mood Specific Colors (Updated)
+    happy: '#FFD166',       // Sunny Yellow
+    sad: '#90BDE1',         // Soft Blue
+    calm: '#6AB7A8',        // Primary Teal
+    neutral: '#B0BEC5',      // Disabled/Neutral Grey
+    anxious: '#F7A072',      // Warmer Orange
+    stressed: '#A8A6CE',     // Accent Lavender
+    grateful: '#FFC46B',     // Golden Yellow
+
+    tagBackground: '#E6F4F1',      // Light Teal Background for Tags
+    suggestionBackground: '#FBEFDD',  // Light Peach Background for Suggestions
+
+    recording: '#E57373',       // Error color for recording indication
+    playButton: '#6AB7A8',      // Primary Teal for play button
+    deleteButton: '#B0BEC5',    // Subtle Grey for delete icon (less alarming)
 };
 const { width } = Dimensions.get('window');
 const INPUT_TEXT_MAX_HEIGHT = 120;
@@ -32,19 +64,28 @@ const API_KEY = GEMINI_API_KEY;
 if (!API_KEY || API_KEY === 'YOUR_REAL_GEMINI_API_KEY_HERE' || API_KEY.length < 10) {
     console.error("❌ CRITICAL: GEMINI_API_KEY is not configured correctly in .env or is invalid.");
 }
-const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const API_URL = `${API_BASE_URL}?key=${API_KEY}`;
 
 // --- VOICE NOTE ADDITION: Audio Recorder Instance & Config ---
 const audioRecorderPlayer = new AudioRecorderPlayer();
-// We rely on the manual timer now, so library subscription duration is less critical
-// audioRecorderPlayer.setSubscriptionDuration(0.1);
 const audioSet = { /* ... audio settings ... */
     AudioEncoderAndroid: AudioEncoderAndroidType.AAC, AudioSourceAndroid: AudioSourceAndroidType.MIC, AVEncoderAudioQualityKeyIOS: AVEncoderAudioQualityIOSType.high, AVNumberOfChannelsKeyIOS: 2, AVFormatIDKeyIOS: AVEncodingOption.aac,
 };
 const RECORDING_DIR = Platform.OS === 'ios'
     ? `${RNFS.DocumentDirectoryPath}/JournalAudio` // App's private documents (iOS)
     : `${RNFS.DocumentDirectoryPath}/JournalAudio`; // App's private documents (Android)
+
+// --- Gamification Constants ---
+const POINTS_PER_JOURNAL_ENTRY = 15;
+const POINTS_PER_NOTE_JOURNAL = 5; // Extra points for text/reflective entries with content
+const FIRST_JOURNAL_ACHIEVEMENT_ID = 'firstJournalEntry';
+const FIRST_JOURNAL_ACHIEVEMENT_NAME = 'Dear Diary';
+const FIRST_VOICE_NOTE_ACHIEVEMENT_ID = 'firstVoiceNote';
+const FIRST_VOICE_NOTE_ACHIEVEMENT_NAME = 'Sound Thoughts';
+const JOURNAL_JOURNEYMAN_ID = 'journalJourneyman';
+const JOURNAL_JOURNEYMAN_NAME = 'Journal Journeyman';
+const JOURNAL_JOURNEYMAN_THRESHOLD = 10; // Number of entries needed
 
 // --- Helper Functions ---
 
@@ -149,7 +190,7 @@ const MemoizedJournalHistoryItem = React.memo(({
                 <IconButton
                     icon="trash-can-outline"
                     size={18}
-                    color={COLORS.deleteButton}
+                    color={COLORS.deleteButton} // Use new subtle delete color
                     onPress={handleDeletePress}
                     // Removed style={styles.deleteButton} to avoid negative margin issues
                     rippleColor={COLORS.deleteButton + '30'} // Optional: visual feedback
@@ -166,18 +207,18 @@ const MemoizedJournalHistoryItem = React.memo(({
                 {/* Audio Controls */}
                 {audioFilePath && (
                     <View style={styles.audioControls}>
-                         {/* FIX: Structure for Text Warning */}
-                         <View style={styles.audioAttachedContainer}>
-                            <Icon name="paperclip" size={11} color={COLORS.lightText} style={styles.audioAttachedIcon} />
-                            <Text style={styles.audioAttachedText}>Audio</Text>
-                         </View>
-                        <IconButton
-                            icon={isPlaying ? "pause-circle" : "play-circle"}
-                            size={28}
-                            color={COLORS.primary}
-                            onPress={handlePlayPausePress}
-                            style={styles.playPauseButton}
-                        />
+                            {/* FIX: Structure for Text Warning */}
+                            <View style={styles.audioAttachedContainer}>
+                                <Icon name="paperclip" size={11} color={COLORS.lightText} style={styles.audioAttachedIcon} />
+                                <Text style={styles.audioAttachedText}>Audio</Text>
+                            </View>
+                           <IconButton
+                                icon={isPlaying ? "pause-circle" : "play-circle"}
+                                size={28}
+                                color={COLORS.playButton} // Use new primary color for play
+                                onPress={handlePlayPausePress}
+                                style={styles.playPauseButton}
+                            />
                     </View>
                 )}
             </View>
@@ -193,6 +234,7 @@ const ZenariJournalScreen = () => {
     const [journalEntry, setJournalEntry] = useState('');
     const [mode, setMode] = useState('text');
     const [isProcessingAI, setIsProcessingAI] = useState(false);
+    const [isSaving, setIsSaving] = useState(false); // Separate state for saving process
     const [aiAnalysis, setAiAnalysis] = useState(null);
     const [reflectivePrompt, setReflectivePrompt] = useState('');
     const [journalHistory, setJournalHistory] = useState([]);
@@ -243,24 +285,273 @@ const ZenariJournalScreen = () => {
         if (newMode === 'text' || newMode === 'reflective') { setTimeout(() => textInputRef.current?.focus(), 150); } else { Keyboard.dismiss(); if (newMode === 'voice' && !hasMicPermission) await requestAudioPermission(); }
     }, [mode, isRecording, stopRecording, hasMicPermission, requestAudioPermission]);
 
-    // Handle Saving Journal Entry (Added Manual Update for Voice Notes)
-    const handleSaveEntry = useCallback(async () => { /* ... (keep implementation with manual update) ... */
-        const entryTextToSave = journalEntry.trim(); const entryAudioToSave = currentAudioPath;
-        if (isRecording) { Alert.alert("Recording Active", "Stop recording before saving."); return; }
+    // Handle Saving Journal Entry (MODIFIED with Gamification)
+    const handleSaveEntry = useCallback(async () => {
+        const entryTextToSave = journalEntry.trim();
+        const entryAudioToSave = currentAudioPath;
+        const userId = currentUserId; // Capture current user ID
+
+        if (isRecording) {
+            Alert.alert("Recording Active", "Stop recording before saving.");
+            return;
+        }
+
         const hasContentToSave = (mode === 'voice' && !!entryAudioToSave) || ((mode === 'text' || mode === 'reflective') && !!entryTextToSave);
-        if (!hasContentToSave || isProcessingAI) { if (mode === 'voice' && !entryAudioToSave) Alert.alert("No Recording", "Record a voice note first."); return; }
-        if (!currentUserId) { Alert.alert("Login Required", "Log in to save entries."); return; }
-        Keyboard.dismiss(); setIsProcessingAI(true); setAiAnalysis(null); setError(''); let analysisResult = null; let newEntryId = null;
-        try { if (mode === 'text' || mode === 'reflective') { analysisResult = await fetchAIAnalysis(entryTextToSave); setAiAnalysis(analysisResult); } else { analysisResult = { mood: 'neutral', tags: [], suggestions: [] }; }
-            const entryData = { userId: currentUserId, text: (mode === 'text' || mode === 'reflective') ? entryTextToSave : '', audioFilePath: mode === 'voice' ? entryAudioToSave : null, mode: mode, prompt: mode === 'reflective' ? reflectivePrompt : null, timestamp: firestore.FieldValue.serverTimestamp(), mood: analysisResult?.mood || 'neutral', tags: (mode !== 'voice' && Array.isArray(analysisResult?.tags) && !analysisResult?.tags?.some(t => t.includes('error') || t.includes('stopped') || t.includes('failed'))) ? analysisResult.tags : [], suggestionsGiven: (mode !== 'voice' && Array.isArray(analysisResult?.suggestions) && !analysisResult?.tags?.some(t => t.includes('error') || t.includes('stopped') || t.includes('failed'))) ? analysisResult.suggestions : [], };
-            console.log("💾 Saving to Firestore 'journals':", entryData); const docRef = await firestore().collection('journals').add(entryData); newEntryId = docRef.id; console.log(`✅ Entry saved successfully with ID: ${newEntryId}.`);
-            const newItem = { id: newEntryId, ...entryData, timestamp: new Date(), }; setJournalHistory(prevHistory => [newItem, ...prevHistory]); console.log("Manually added new entry to history state.");
-            setJournalEntry(''); setCurrentAudioPath(''); setRecordTime('00:00'); // Reset recordTime display
+
+        if (!hasContentToSave || isSaving || isProcessingAI) {
+            if (mode === 'voice' && !entryAudioToSave) Alert.alert("No Recording", "Record a voice note first.");
+            return;
+        }
+
+        if (!userId) {
+            Alert.alert("Login Required", "Log in to save entries.");
+            return;
+        }
+
+        Keyboard.dismiss();
+        setIsSaving(true); // Indicate saving process started
+        setIsProcessingAI(true); // Also indicate potential AI processing
+        setAiAnalysis(null);
+        setError('');
+        let analysisResult = null;
+        let newEntryId = null;
+        let isFirstEntryEver = false; // Flag for first entry achievement
+
+        try {
+            // --- 1. Check if this is the user's first entry EVER (before transaction) ---
+            console.log(`[Gamification] Checking first entry status for user: ${userId}`);
+            try {
+                const firstEntryQuery = await firestore()
+                    .collection('journals')
+                    .where('userId', '==', userId)
+                    .limit(1)
+                    .get();
+                isFirstEntryEver = firstEntryQuery.empty; // True if no documents found
+                console.log(`[Gamification] Is first entry ever? ${isFirstEntryEver}`);
+            } catch (firstCheckError) {
+                console.error("❌ Error checking for first entry:", firstCheckError);
+                // Decide if this error is critical. For now, we'll proceed but log it.
+                setError("Error checking entry history. Proceeding anyway.");
+                // Don't unlock the achievement if we couldn't check
+                isFirstEntryEver = false;
+            }
+
+            // --- 2. Fetch AI Analysis (if applicable) ---
+            if (mode === 'text' || mode === 'reflective') {
+                analysisResult = await fetchAIAnalysis(entryTextToSave);
+                setAiAnalysis(analysisResult); // Update UI optimistically
+            } else {
+                // Default for voice notes (no text analysis)
+                analysisResult = { mood: 'neutral', tags: [], suggestions: [] };
+            }
+            setIsProcessingAI(false); // AI part is done
+
+            // --- 3. Firestore Transaction ---
+            console.log("💾 Starting Firestore transaction...");
+            const transactionResult = await firestore().runTransaction(async (transaction) => {
+                // Define references within the transaction
+                const newJournalRef = firestore().collection('journals').doc(); // Auto-generate ID
+                const gamificationRef = firestore().doc(`users/${userId}/gamification/summary`);
+                const statsRef = firestore().doc(`users/${userId}/stats/summary`);
+                const firstJournalAchRef = firestore().doc(`users/${userId}/achievements/${FIRST_JOURNAL_ACHIEVEMENT_ID}`);
+                const firstVoiceNoteAchRef = firestore().doc(`users/${userId}/achievements/${FIRST_VOICE_NOTE_ACHIEVEMENT_ID}`);
+
+                // Prepare journal entry data
+                const entryData = {
+                    userId: userId,
+                    text: (mode === 'text' || mode === 'reflective') ? entryTextToSave : '',
+                    audioFilePath: mode === 'voice' ? entryAudioToSave : null,
+                    mode: mode,
+                    prompt: mode === 'reflective' ? reflectivePrompt : null,
+                    timestamp: firestore.FieldValue.serverTimestamp(), // Use server timestamp
+                    mood: analysisResult?.mood || 'neutral',
+                    // Only save valid tags/suggestions (not errors)
+                    tags: (mode !== 'voice' && Array.isArray(analysisResult?.tags) && !analysisResult?.tags?.some(t => t.includes('error') || t.includes('stopped') || t.includes('failed'))) ? analysisResult.tags : [],
+                    suggestionsGiven: (mode !== 'voice' && Array.isArray(analysisResult?.suggestions) && !analysisResult?.tags?.some(t => t.includes('error') || t.includes('stopped') || t.includes('failed'))) ? analysisResult.suggestions : [],
+                };
+
+                // a) Save the new journal entry
+                console.log(`[Transaction] Setting new journal entry at ${newJournalRef.path}`);
+                transaction.set(newJournalRef, entryData);
+                newEntryId = newJournalRef.id; // Capture the new ID
+
+                // b) Update Gamification Points
+                let pointsToAdd = POINTS_PER_JOURNAL_ENTRY;
+                if (mode !== 'voice' && entryTextToSave) {
+                    pointsToAdd += POINTS_PER_NOTE_JOURNAL;
+                }
+                console.log(`[Transaction] Updating gamification points (+${pointsToAdd}) at ${gamificationRef.path}`);
+                transaction.set(gamificationRef, {
+                    points: firestore.FieldValue.increment(pointsToAdd),
+                    lastUpdated: firestore.FieldValue.serverTimestamp(),
+                }, { merge: true }); // Use merge: true to create/update
+
+                // c) Update User Stats
+                console.log(`[Transaction] Updating stats at ${statsRef.path}`);
+                transaction.set(statsRef, {
+                    sessions: firestore.FieldValue.increment(1), // Increment session count
+                    journalEntryCount: firestore.FieldValue.increment(1), // Increment entry count
+                    lastActivityDate: firestore.FieldValue.serverTimestamp(),
+                }, { merge: true }); // Use merge: true to create/update
+
+                // d) Unlock First Journal Entry Achievement (if applicable)
+                if (isFirstEntryEver) {
+                    console.log(`[Transaction] Checking/unlocking achievement: ${FIRST_JOURNAL_ACHIEVEMENT_ID}`);
+                    const firstJournalAchDoc = await transaction.get(firstJournalAchRef);
+                    if (!firstJournalAchDoc.exists || !firstJournalAchDoc.data()?.earned) {
+                        console.log(`[Transaction] Unlocking ${FIRST_JOURNAL_ACHIEVEMENT_ID}!`);
+                        transaction.set(firstJournalAchRef, {
+                            id: FIRST_JOURNAL_ACHIEVEMENT_ID,
+                            name: FIRST_JOURNAL_ACHIEVEMENT_NAME,
+                            earned: true,
+                            earnedAt: firestore.FieldValue.serverTimestamp(),
+                        }, { merge: true });
+                    } else {
+                         console.log(`[Transaction] Achievement ${FIRST_JOURNAL_ACHIEVEMENT_ID} already earned.`);
+                    }
+                }
+
+                // e) Unlock First Voice Note Achievement (if applicable)
+                if (mode === 'voice') {
+                    console.log(`[Transaction] Checking/unlocking achievement: ${FIRST_VOICE_NOTE_ACHIEVEMENT_ID}`);
+                    const firstVoiceAchDoc = await transaction.get(firstVoiceNoteAchRef);
+                    if (!firstVoiceAchDoc.exists || !firstVoiceAchDoc.data()?.earned) {
+                        console.log(`[Transaction] Unlocking ${FIRST_VOICE_NOTE_ACHIEVEMENT_ID}!`);
+                        transaction.set(firstVoiceNoteAchRef, {
+                            id: FIRST_VOICE_NOTE_ACHIEVEMENT_ID,
+                            name: FIRST_VOICE_NOTE_ACHIEVEMENT_NAME,
+                            earned: true,
+                            earnedAt: firestore.FieldValue.serverTimestamp(),
+                        }, { merge: true });
+                    } else {
+                         console.log(`[Transaction] Achievement ${FIRST_VOICE_NOTE_ACHIEVEMENT_ID} already earned.`);
+                    }
+                }
+
+                // Transaction implicitly returns undefined on success
+                console.log("[Transaction] Completed successfully.");
+                return { success: true, entryId: newEntryId }; // Return success and ID explicitly if needed later
+            });
+
+            // --- 4. Post-Transaction Logic (UI Updates, Journeyman Check) ---
+            console.log(`✅ Entry saved successfully with ID: ${newEntryId}.`);
+
+            // Manually add to local history state for immediate UI update
+            // Note: Firestore listener will eventually update, but this is faster visually
+            const newItemForHistory = {
+                id: newEntryId,
+                userId: userId,
+                text: (mode === 'text' || mode === 'reflective') ? entryTextToSave : '',
+                audioFilePath: mode === 'voice' ? entryAudioToSave : null,
+                mode: mode,
+                prompt: mode === 'reflective' ? reflectivePrompt : null,
+                timestamp: new Date(), // Use local time for immediate display
+                mood: analysisResult?.mood || 'neutral',
+                tags: analysisResult?.tags || [],
+                suggestionsGiven: analysisResult?.suggestions || [],
+            };
+            setJournalHistory(prevHistory => [newItemForHistory, ...prevHistory]);
+            console.log("Manually added new entry to history state.");
+
+            // Reset input fields
+            setJournalEntry('');
+            setCurrentAudioPath('');
+            setRecordTime('00:00');
+
+            // Show appropriate success toast
             const isAnalysisIssue = analysisResult?.tags?.some(tag => tag.includes('error') || tag.includes('fail') || tag.includes('incomplete') || tag.includes('stopped') || tag.includes('parsing_failed') || tag.includes('no_json_found') || tag.includes('blocked'));
-            if (mode === 'voice') { Toast.show({ type: 'success', text1: 'Voice Note Saved', position: 'bottom' }); } else if (isAnalysisIssue) { const issueText = analysisResult?.suggestions?.[0]?.text || 'Check analysis card.'; Toast.show({ type: 'info', text1: 'Entry Saved (Analysis Issue)', text2: issueText, visibilityTime: 4000, position: 'bottom' }); } else { Toast.show({ type: 'success', text1: 'Entry Saved & Analyzed', text2: `Mood detected: ${analysisResult?.mood || 'N/A'}.`, position: 'bottom' }); }
-        } catch (e) { console.error("❌ Error during save/analysis process: ", e); let userErrorMessage = `Failed to process entry: ${e.message || 'Unknown error'}`; let alertTitle = "Error"; if (e.code === 'permission-denied') { userErrorMessage = "Permission denied saving."; alertTitle = "Save Error"; } else if (String(e.message).includes("API Key")) { userErrorMessage = `Config Error: ${e.message}`; alertTitle = "Config Error"; } else if (String(e.message).includes("AI API") || String(e.message).includes("Content blocked") || String(e.message).includes("Authentication/Permission")) { userErrorMessage = e.message; alertTitle = "AI Analysis Error"; setAiAnalysis({ mood: 'error', tags: ['ai_error'], suggestions: [{ type: 'tip', text: userErrorMessage }] }); } else if (String(e.message).includes("Firestore") || e.code) { userErrorMessage = `Database Error: ${e.message}.`; alertTitle = "Save Error"; } else { userErrorMessage = `An unexpected error occurred: ${e.message}`; } setError(userErrorMessage); if (!alertTitle.startsWith("AI Analysis")) Alert.alert(alertTitle, userErrorMessage); }
-        finally { setIsProcessingAI(false); }
-    }, [journalEntry, currentAudioPath, isRecording, isProcessingAI, currentUserId, mode, reflectivePrompt]);
+            if (mode === 'voice') {
+                Toast.show({ type: 'success', text1: 'Voice Note Saved', position: 'bottom' });
+            } else if (isAnalysisIssue) {
+                const issueText = analysisResult?.suggestions?.[0]?.text || 'Check analysis card.';
+                Toast.show({ type: 'info', text1: 'Entry Saved (Analysis Issue)', text2: issueText, visibilityTime: 4000, position: 'bottom' });
+            } else {
+                Toast.show({ type: 'success', text1: 'Entry Saved & Analyzed', text2: `Mood detected: ${analysisResult?.mood || 'N/A'}.`, position: 'bottom' });
+            }
+
+            // --- 5. Check for Journal Journeyman Achievement (Post-Transaction) ---
+            try {
+                console.log("[Gamification] Checking for Journal Journeyman achievement...");
+                const statsRef = firestore().doc(`users/${userId}/stats/summary`);
+                const updatedStatsDoc = await statsRef.get(); // Get the latest stats
+
+                if (updatedStatsDoc.exists) {
+                    const newEntryCount = updatedStatsDoc.data()?.journalEntryCount || 0;
+                    console.log(`[Gamification] Current journal entry count: ${newEntryCount}`);
+
+                    if (newEntryCount >= JOURNAL_JOURNEYMAN_THRESHOLD) {
+                        const journeymanAchRef = firestore().doc(`users/${userId}/achievements/${JOURNAL_JOURNEYMAN_ID}`);
+                        const journeymanAchDoc = await journeymanAchRef.get(); // Standard get, outside transaction
+
+                        if (!journeymanAchDoc.exists || !journeymanAchDoc.data()?.earned) {
+                            console.log(`[Gamification] Threshold met! Unlocking ${JOURNAL_JOURNEYMAN_ID}!`);
+                            await journeymanAchRef.set({ // Perform separate set operation
+                                id: JOURNAL_JOURNEYMAN_ID,
+                                name: JOURNAL_JOURNEYMAN_NAME,
+                                earned: true,
+                                earnedAt: firestore.FieldValue.serverTimestamp(),
+                            }, { merge: true });
+
+                            // Show achievement unlocked toast
+                            Toast.show({
+                                type: 'info', // Or a custom type for achievements
+                                text1: '🏆 Achievement Unlocked!',
+                                text2: JOURNAL_JOURNEYMAN_NAME,
+                                visibilityTime: 5000,
+                                position: 'bottom',
+                            });
+                        } else {
+                            console.log(`[Gamification] Achievement ${JOURNAL_JOURNEYMAN_ID} already earned.`);
+                        }
+                    } else {
+                         console.log(`[Gamification] Journal Journeyman threshold (${JOURNAL_JOURNEYMAN_THRESHOLD}) not yet met.`);
+                    }
+                } else {
+                     console.warn("[Gamification] Could not read updated stats document after transaction.");
+                }
+            } catch (journeymanError) {
+                console.error("❌ Error checking/unlocking Journal Journeyman achievement:", journeymanError);
+                // Non-critical error, don't block the user, just log it.
+            }
+
+        } catch (e) {
+            console.error("❌ Error during save/analysis/transaction process: ", e);
+            let userErrorMessage = `Failed to process entry: ${e.message || 'Unknown error'}`;
+            let alertTitle = "Error";
+
+            // Specific Firebase error codes (or general transaction failure)
+            if (e.code === 'permission-denied') {
+                userErrorMessage = "Permission denied saving data.";
+                alertTitle = "Save Error";
+            } else if (String(e.message).toLowerCase().includes("transaction")) {
+                 userErrorMessage = `Database transaction failed. Please try again. (${e.message})`;
+                 alertTitle = "Save Error";
+            } else if (String(e.message).includes("API Key")) {
+                userErrorMessage = `Config Error: ${e.message}`;
+                alertTitle = "Config Error";
+            } else if (String(e.message).includes("AI API") || String(e.message).includes("Content blocked") || String(e.message).includes("Authentication/Permission")) {
+                userErrorMessage = e.message;
+                alertTitle = "AI Analysis Error";
+                // Set AI analysis error state even if saving failed later
+                setAiAnalysis({ mood: 'error', tags: ['ai_error'], suggestions: [{ type: 'tip', text: userErrorMessage }] });
+            } else if (String(e.message).includes("Firestore") || e.code) { // Catch other Firestore errors
+                 userErrorMessage = `Database Error: ${e.message}.`;
+                 alertTitle = "Save Error";
+            } else { // General JS errors
+                 userErrorMessage = `An unexpected error occurred: ${e.message}`;
+            }
+
+            setError(userErrorMessage);
+            // Avoid showing generic alert if it was an AI error shown in the card
+            if (!alertTitle.startsWith("AI Analysis")) {
+                 Alert.alert(alertTitle, userErrorMessage);
+            }
+        } finally {
+            setIsSaving(false); // Saving process finished (success or fail)
+            setIsProcessingAI(false); // Ensure this is also reset
+        }
+    }, [journalEntry, currentAudioPath, isRecording, isSaving, isProcessingAI, currentUserId, mode, reflectivePrompt]); // Added isSaving
+
 
     // --- Playback Callbacks ---
     const stopPlayback = useCallback(async () => { /* ... (keep implementation using formatMillisToMMSS) ... */
@@ -425,17 +716,99 @@ const ZenariJournalScreen = () => {
     // --- Render Logic ---
 
     // Render Mode Specific Input UI
-    const renderModeSpecificInput = useCallback(() => { /* ... (keep implementation, uses recordTime state) ... */
-        const isInputDisabled = !currentUserId || isProcessingAI || (mode === 'voice' && !hasMicPermission && !isRecording); const isMicButtonDisabled = !currentUserId || isProcessingAI || (!hasMicPermission && !isRecording);
-        const placeholderText = !currentUserId ? "Log in to use journal..." : (mode === 'reflective' ? "Your reflection on the prompt..." : "How are you feeling today?"); const textInputStyle = [styles.textInput, isInputDisabled && styles.textInputDisabled];
-        switch (mode) { case 'voice': let voiceStatus = "Tap mic to record."; if (!currentUserId) voiceStatus = "Log in to record"; else if (!hasMicPermission && !isRecording) voiceStatus = "Mic permission needed."; else if (isRecording) voiceStatus = `Recording... (${recordTime})`; /* <-- Uses recordTime */ else if (currentAudioPath) voiceStatus = `Finished (${recordTime}). Ready to save.`; /* <-- Uses recordTime */ return (<View style={styles.voiceInputWrapper}>{!hasMicPermission && currentUserId && !isRecording && (<TouchableOpacity onPress={requestAudioPermission} style={styles.permissionButton}><Icon name="alert-triangle" size={16} color={COLORS.error} style={{ marginRight: 8 }}/><Text style={styles.permissionButtonText}>Grant Mic Permission</Text></TouchableOpacity>)}<TouchableOpacity style={[ styles.micButton, isRecording && styles.micButtonRecording, isMicButtonDisabled && styles.micButtonDisabled ]} onPress={isRecording ? stopRecording : startRecording} disabled={isMicButtonDisabled} ><Icon name={isRecording ? "square" : "mic"} size={30} color={COLORS.white} /></TouchableOpacity><Text style={styles.voiceStatusText}>{voiceStatus}</Text></View>); case 'reflective': return (<View><View style={styles.promptContainer}><Icon name="help-circle" size={22} color={COLORS.primary} style={styles.promptIcon} /><Text style={styles.promptText}>{reflectivePrompt || "Loading prompt..."}</Text></View><TextInput ref={textInputRef} style={textInputStyle} value={journalEntry} onChangeText={setJournalEntry} placeholder={placeholderText} placeholderTextColor={COLORS.lightText} multiline editable={!isInputDisabled} /></View>); default: return (<TextInput ref={textInputRef} style={textInputStyle} value={journalEntry} onChangeText={setJournalEntry} placeholder={placeholderText} placeholderTextColor={COLORS.lightText} multiline editable={!isInputDisabled} />); }
-    }, [ currentUserId, isProcessingAI, mode, journalEntry, reflectivePrompt, isRecording, recordTime, currentAudioPath, hasMicPermission, startRecording, stopRecording, requestAudioPermission ]);
+    const renderModeSpecificInput = useCallback(() => {
+        const isInputDisabled = !currentUserId || isSaving || isProcessingAI || (mode === 'voice' && !hasMicPermission && !isRecording);
+        const isMicButtonDisabled = !currentUserId || isSaving || isProcessingAI || (!hasMicPermission && !isRecording); // Also disable mic if saving
+        const placeholderText = !currentUserId ? "Log in to use journal..." : (mode === 'reflective' ? "Your reflection on the prompt..." : "How are you feeling today?");
+        const textInputStyle = [styles.textInput, isInputDisabled && styles.textInputDisabled];
+
+        switch (mode) {
+            case 'voice':
+                let voiceStatus = "Tap mic to record.";
+                if (!currentUserId) voiceStatus = "Log in to record";
+                else if (!hasMicPermission && !isRecording) voiceStatus = "Mic permission needed.";
+                else if (isRecording) voiceStatus = `Recording... (${recordTime})`;
+                else if (currentAudioPath) voiceStatus = `Finished (${recordTime}). Ready to save.`;
+                else if (isSaving) voiceStatus = "Saving..."; // Indicate saving state
+
+                return (
+                    <View style={styles.voiceInputWrapper}>
+                        {!hasMicPermission && currentUserId && !isRecording && !isSaving && ( // Don't show if saving
+                            <TouchableOpacity onPress={requestAudioPermission} style={styles.permissionButton}>
+                                <Icon name="alert-triangle" size={16} color={COLORS.error} style={{ marginRight: 8 }}/>
+                                <Text style={styles.permissionButtonText}>Grant Mic Permission</Text>
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                            style={[ styles.micButton, isRecording && styles.micButtonRecording, isMicButtonDisabled && styles.micButtonDisabled ]}
+                            onPress={isRecording ? stopRecording : startRecording}
+                            disabled={isMicButtonDisabled} // Disable based on combined state
+                        >
+                            <Icon name={isRecording ? "square" : "mic"} size={30} color={COLORS.white} />
+                        </TouchableOpacity>
+                        <Text style={styles.voiceStatusText}>{voiceStatus}</Text>
+                    </View>
+                );
+            case 'reflective':
+                return (
+                    <View>
+                        <View style={styles.promptContainer}>
+                            <Icon name="help-circle" size={22} color={COLORS.accent} style={styles.promptIcon} /> {/* Use Accent color */}
+                            <Text style={styles.promptText}>{reflectivePrompt || "Loading prompt..."}</Text>
+                        </View>
+                        <TextInput
+                            ref={textInputRef}
+                            style={textInputStyle}
+                            value={journalEntry}
+                            onChangeText={setJournalEntry}
+                            placeholder={placeholderText}
+                            placeholderTextColor={COLORS.lightText}
+                            multiline
+                            editable={!isInputDisabled} // Disable based on combined state
+                        />
+                    </View>
+                );
+            default: // 'text' mode
+                return (
+                    <TextInput
+                        ref={textInputRef}
+                        style={textInputStyle}
+                        value={journalEntry}
+                        onChangeText={setJournalEntry}
+                        placeholder={placeholderText}
+                        placeholderTextColor={COLORS.lightText}
+                        multiline
+                        editable={!isInputDisabled} // Disable based on combined state
+                    />
+                );
+        }
+    }, [ currentUserId, isSaving, isProcessingAI, mode, journalEntry, reflectivePrompt, isRecording, recordTime, currentAudioPath, hasMicPermission, startRecording, stopRecording, requestAudioPermission ]); // Added isSaving
 
     // Render AI Analysis Card
     const renderAIAnalysis = useCallback(() => { /* ... (keep implementation) ... */
         if (mode === 'voice') return null; if (isProcessingAI && (mode === 'text' || mode === 'reflective') && !aiAnalysis) { return ( <View style={[styles.aiContainer, styles.aiLoadingContainer]}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.aiStatusText}>Analyzing...</Text></View> ); } if (!aiAnalysis) return null;
         const isErrorState = aiAnalysis.tags?.includes('ai_error') || aiAnalysis.tags?.includes('parsing_failed'); const isWarningState = aiAnalysis.tags?.includes('analysis_incomplete') || aiAnalysis.tags?.includes('analysis_stopped') || aiAnalysis.tags?.includes('parsing_issue') || aiAnalysis.tags?.includes('no_json_found') || aiAnalysis.tags?.includes('analysis_blocked');
-        if (isErrorState || isWarningState) { const iconName = isErrorState ? "alert-octagon" : "alert-circle"; const color = isErrorState ? COLORS.error : COLORS.anxious; const title = isErrorState ? "Analysis Error" : "Analysis Info"; const detailText = aiAnalysis.suggestions?.[0]?.text || "Could not complete analysis."; return ( <View style={[styles.aiContainer, { borderColor: color }]}><View style={styles.aiHeader}><Icon name={iconName} size={28} color={color} /><Text style={[styles.aiTitle, { color: color }]}> {title} </Text></View><View style={styles.aiSection}><Text style={styles.suggestionText}> {detailText} </Text></View></View> ); }
+        // --- UPDATED ERROR/WARNING CARD RENDERING ---
+        if (isErrorState || isWarningState) {
+            const iconName = isErrorState ? "alert-octagon" : "alert-circle";
+            const color = isErrorState ? COLORS.error : COLORS.anxious; // Use anxious for warning
+            const title = isErrorState ? "Analysis Error" : "Analysis Info";
+            const detailText = aiAnalysis.suggestions?.[0]?.text || "Could not complete analysis.";
+            const cardStyle = isErrorState ? styles.aiErrorCard : styles.aiWarningCard; // Apply specific card style
+
+            return (
+              <View style={[styles.aiContainer, cardStyle]}> {/* Base + specific */}
+                <View style={styles.aiHeader}>
+                  <Icon name={iconName} size={28} color={color} />
+                  <Text style={[styles.aiTitle, { color: color }]}> {title} </Text>
+                </View>
+                <View style={styles.aiSection}>
+                  <Text style={styles.suggestionText}> {detailText} </Text>
+                </View>
+              </View>
+            );
+        }
+        // --- END OF UPDATED ERROR/WARNING CARD ---
         const { mood, tags, suggestions } = aiAnalysis; const moodInfo = getMoodIcon(mood);
         return ( <View style={styles.aiContainer}><View style={styles.aiHeader}><Icon name={moodInfo.name} size={28} color={moodInfo.color || COLORS.primary} /><Text style={[styles.aiTitle, { color: moodInfo.color || COLORS.primary }]}> {mood ? mood.charAt(0).toUpperCase() + mood.slice(1) : 'Analysis'} Mood </Text></View>{tags?.length > 0 && ( <View style={styles.aiSection}><Text style={styles.subtleHeading}>Themes</Text><View style={styles.tagContainer}>{tags.map((tag, index) => <Text key={`${tag}-${index}`} style={styles.tag}>#{tag}</Text>)}</View></View> )}{suggestions?.length > 0 && ( <View style={styles.aiSection}><Text style={styles.subtleHeading}>Suggestions</Text><View style={styles.suggestionsContainer}>{suggestions.map((suggestion, index) => ( <View key={index} style={styles.suggestionItem}><Icon name={getSuggestionIcon(suggestion.type)} size={20} color={COLORS.primary} style={styles.suggestionIcon} /><Text style={styles.suggestionText}>{suggestion.text}</Text></View> ))} </View></View> )}{(!suggestions || suggestions.length === 0) && tags && tags.length > 0 && ( <View style={{ marginBottom: -15 }} /> )}</View> );
     }, [aiAnalysis, isProcessingAI, mode]);
@@ -447,17 +820,23 @@ const ZenariJournalScreen = () => {
         return ( <SafeAreaView style={[styles.safeArea, styles.loadingContainer]}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.loadingText}>Initializing...</Text></SafeAreaView> );
     }
 
+    // Determine if save button should be visible
+    const showSaveButton = (((mode === 'text' || mode === 'reflective') && journalEntry.trim()) || (mode === 'voice' && currentAudioPath && !isRecording)) && !isSaving && !isProcessingAI;
+    // Determine if loading indicator should be visible
+    const showLoadingIndicator = isSaving || isProcessingAI;
+
     // Main UI
     return (
         <SafeAreaView style={styles.safeArea}>
             <ScrollView ref={scrollViewRef} style={styles.scrollView} contentContainerStyle={styles.scrollViewContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} >
-                <Text style={styles.title}>Zenari Journal</Text>
+                <Text style={styles.title}>My ZenAI Journal</Text>
                 {/* Mode Selector */}
                 <View style={styles.modeSelector}>
-                   {['text', 'voice', 'reflective'].map((m) => { /* ... mode buttons ... */
-                       const isActive = mode === m; let iconName = 'edit-3'; if (m === 'reflective') iconName = 'help-circle'; if (m === 'voice') iconName = 'mic'; const isDisabled = !currentUserId || isProcessingAI;
-                       return ( <TouchableOpacity key={m} style={[styles.modeButton, isActive && styles.modeButtonActive, isDisabled && styles.modeButtonDisabled]} onPress={() => handleModeChange(m)} disabled={isDisabled} > <Icon name={iconName} size={18} color={isDisabled ? COLORS.disabled : (isActive ? COLORS.white : COLORS.primary)} /> <Text style={[styles.modeButtonText, isActive && styles.modeButtonTextActive, isDisabled && styles.modeButtonTextDisabled]}>{m.charAt(0).toUpperCase() + m.slice(1)}</Text> </TouchableOpacity> );
-                   })}
+                    {['text', 'voice', 'reflective'].map((m) => { /* ... mode buttons ... */
+                        const isActive = mode === m; let iconName = 'edit-3'; if (m === 'reflective') iconName = 'help-circle'; if (m === 'voice') iconName = 'mic';
+                        const isDisabled = !currentUserId || isSaving || isProcessingAI; // Disable if saving/processing
+                        return ( <TouchableOpacity key={m} style={[styles.modeButton, isActive && styles.modeButtonActive, isDisabled && styles.modeButtonDisabled]} onPress={() => handleModeChange(m)} disabled={isDisabled} > <Icon name={iconName} size={18} color={isDisabled ? COLORS.disabled : (isActive ? COLORS.white : COLORS.primary)} /> <Text style={[styles.modeButtonText, isActive && styles.modeButtonTextActive, isDisabled && styles.modeButtonTextDisabled]}>{m.charAt(0).toUpperCase() + m.slice(1)}</Text> </TouchableOpacity> );
+                    })}
                 </View>
 
                 {/* Conditional Rendering: Login Prompt or Main Content */}
@@ -467,180 +846,592 @@ const ZenariJournalScreen = () => {
                     <>
                         {renderModeSpecificInput()}
                         {/* Save Button Logic */}
-                        <>
-                            {(((mode === 'text' || mode === 'reflective') && journalEntry.trim()) || (mode === 'voice' && currentAudioPath && !isRecording)) && !isProcessingAI ? ( <TouchableOpacity style={styles.saveButton} onPress={handleSaveEntry} > <Text style={styles.saveButtonText}>{mode === 'voice' ? 'Save Voice Note' : 'Save & Analyze Entry'}</Text> </TouchableOpacity> ) : null }
-                            {isProcessingAI ? ( <TouchableOpacity style={[styles.saveButton, styles.saveButtonDisabled]} disabled={true} > <ActivityIndicator color={mode === 'voice' ? COLORS.text : COLORS.white} style={{ marginRight: 10 }}/> <Text style={styles.saveButtonText}>{mode === 'voice' ? 'Saving...' : 'Analyzing...'}</Text> </TouchableOpacity> ) : null}
-                        </>
+                        {/* Wrap buttons in a container for consistent spacing */}
+                        <View style={styles.buttonContainer}>
+                            {showSaveButton ? (
+                                <TouchableOpacity style={styles.saveButton} onPress={handleSaveEntry} >
+                                    <Text style={styles.saveButtonText}>{mode === 'voice' ? 'Save Voice Note' : 'Save & Analyze Entry'}</Text>
+                                </TouchableOpacity>
+                            ) : null }
+                            {showLoadingIndicator ? (
+                                <TouchableOpacity style={[styles.saveButton, styles.saveButtonDisabled]} disabled={true} >
+                                    <ActivityIndicator color={COLORS.white} style={{ marginRight: 10 }}/> {/* Spinner color adjusted for disabled button */}
+                                    {/* Show specific loading text */}
+                                    <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : (isProcessingAI ? 'Analyzing...' : 'Processing...')}</Text>
+                                </TouchableOpacity>
+                            ) : null}
+                        </View>
+
                         {/* General Error Display */}
                         {error && !error.includes("history") && !error.includes("Permission") && !(aiAnalysis?.tags?.includes('ai_error')) ? ( <Text style={[styles.errorText, {textAlign: 'center', marginBottom: 15}]}>{error}</Text> ) : null}
+
                         {/* AI Analysis Card */}
                         {renderAIAnalysis()}
+
                         {/* Insight Card */}
-                        <View style={styles.insightCard}><Icon name="activity" size={24} color={COLORS.secondary} style={styles.insightIcon}/><View style={styles.insightContent}><Text style={styles.insightTitle}>Daily Reflection</Text><Text style={styles.insightText}>Taking a moment to journal helps understand thoughts & feelings.</Text></View></View>
+                        <View style={styles.insightCard}>
+                            <Icon name="activity" size={24} color={COLORS.secondary} style={styles.insightIcon}/>{/* Use Secondary color */}
+                            <View style={styles.insightContent}>
+                                <Text style={styles.insightTitle}>Daily Reflection</Text>
+                                <Text style={styles.insightText}>Taking a moment to journal helps understand thoughts & feelings.</Text>
+                            </View>
+                        </View>
                     </>
                 )}
 
                 {/* History Section */}
                 {/* ***** IMPORTANT: Requires Firestore index: *****
-                    Collection: 'journals', Fields: 'userId' ASC, 'timestamp' DESC */}
+                     Collection: 'journals', Fields: 'userId' ASC, 'timestamp' DESC */}
                 <View style={styles.historyContainer}>
-                     <Text style={styles.historyTitle}>Recent Entries</Text>
-                     {!currentUserId ? (
-                         <Text style={styles.historyPlaceholder}>Log in to see history.</Text>
-                     ) : isLoadingHistory ? (
-                         <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary}/><Text style={styles.loadingText}>Loading history...</Text></View>
-                     ) : error && error.includes("history") ? (
-                         <Text style={[styles.errorText, styles.historyPlaceholder]}>{error}</Text>
-                     ) : journalHistory.length > 0 ? (
-                         <FlatList
-                             data={journalHistory}
-                             renderItem={({ item }) => (
-                                 <MemoizedJournalHistoryItem
-                                     item={item}
-                                     onPlayPause={handlePlayPause} // Pass the handler
-                                     currentlyPlayingId={isPlayingId} // Pass the currently playing ID
-                                     onDelete={handleDeleteEntry} // ** NEW: Pass delete handler **
-                                 />
-                             )}
-                             keyExtractor={(item) => item.id} // Use Firestore document ID as key
-                             scrollEnabled={false} // Essential inside ScrollView
-                             ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-                             // Add extraData prop to help FlatList update when non-data props change
-                             extraData={isPlayingId}
-                         />
-                     ) : (
-                         <Text style={styles.historyPlaceholder}>Your journal thoughts appear here.</Text>
-                     )}
-                 </View>
+                      <Text style={styles.historyTitle}>Recent Entries</Text>
+                      {!currentUserId ? (
+                          <Text style={styles.historyPlaceholder}>Log in to see history.</Text>
+                      ) : isLoadingHistory ? (
+                          <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary}/><Text style={styles.loadingText}>Loading history...</Text></View>
+                      ) : error && error.includes("history") ? (
+                          <Text style={[styles.errorText, styles.historyPlaceholder]}>{error}</Text>
+                      ) : journalHistory.length > 0 ? (
+                          <FlatList
+                              data={journalHistory}
+                              renderItem={({ item }) => (
+                                  <MemoizedJournalHistoryItem
+                                      item={item}
+                                      onPlayPause={handlePlayPause} // Pass the handler
+                                      currentlyPlayingId={isPlayingId} // Pass the currently playing ID
+                                      onDelete={handleDeleteEntry} // ** NEW: Pass delete handler **
+                                  />
+                              )}
+                              keyExtractor={(item) => item.id} // Use Firestore document ID as key
+                              scrollEnabled={false} // Essential inside ScrollView
+                              ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+                              // Add extraData prop to help FlatList update when non-data props change
+                              extraData={isPlayingId}
+                          />
+                      ) : (
+                          <Text style={styles.historyPlaceholder}>Your journal thoughts appear here.</Text>
+                      )}
+                </View>
             </ScrollView>
-             {/* Toast component needs to be rendered at top level (in App.js) */}
+            {/* Toast component needs to be rendered at top level (usually in App.js or root navigator) */}
+            {/* <Toast /> */}
         </SafeAreaView>
     );
 };
 
-// --- Styles ---
+// --- Styles (Using NEW COLORS and enhanced design) ---
 const styles = StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: COLORS.background },
-    scrollView: { flex: 1, },
-    scrollViewContent: { padding: 20, paddingBottom: 60, },
-    loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 20, minHeight: 100, },
-    loadingText: { marginTop: 10, fontSize: 14, color: COLORS.textSecondary, },
-    title: { fontSize: 28, fontWeight: 'bold', color: COLORS.primary, textAlign: 'center', marginBottom: 25, },
+    safeArea: {
+        flex: 1,
+        backgroundColor: COLORS.background // Use new background
+    },
+    scrollView: {
+        flex: 1,
+    },
+    scrollViewContent: {
+        paddingHorizontal: 20,
+        paddingVertical: 25, // Consistent vertical padding
+        paddingBottom: 80, // Ensure enough space at the bottom
+    },
+    loadingContainer: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 40,
+        minHeight: 150,
+    },
+    loadingText: {
+        marginTop: 12,
+        fontSize: 15,
+        color: COLORS.textSecondary, // Use new secondary text color
+    },
+    title: {
+        fontSize: 30,
+        fontWeight: '700',
+        color: COLORS.text, // Use main text color
+        textAlign: 'center',
+        marginBottom: 30,
+    },
     modeSelector: {
         flexDirection: 'row',
-        justifyContent: 'space-around', // Keep space around
-        flexWrap: 'wrap', // ** UI FIX: Allow wrapping **
-        marginBottom: 25,
-        backgroundColor: COLORS.white,
+        justifyContent: 'center', // Center buttons when wrapped
+        flexWrap: 'wrap',
+        marginBottom: 30,
+        backgroundColor: COLORS.white, // Keep white background
         borderRadius: 30,
-        paddingVertical: 6,
+        paddingVertical: 6, // Adjust padding
         paddingHorizontal: 6,
-        elevation: 20,
-        shadowColor: COLORS.primary,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
         borderWidth: 1,
-        borderColor: COLORS.border,
+        borderColor: COLORS.border, // Use themed border color
+        shadowColor: '#9DB5CC', // Softer shadow color
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+        elevation: 4, // Subtle elevation
     },
     modeButton: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 10,
-        paddingHorizontal: 12, // Slightly reduced padding
+        paddingHorizontal: 16, // Comfortable padding
         borderRadius: 25,
-        // flex: 1, // ** UI FIX: Removed flex: 1 **
-        marginHorizontal: 4, // Keep some margin
-        marginVertical: 3, // Add vertical margin for wrapped items
+        margin: 4, // Spacing for wrapped items
         justifyContent: 'center',
-        minHeight: 40,
+        minHeight: 42,
+        borderWidth: 1.5, // Border for inactive state
+        borderColor: COLORS.border, // Use themed border
+        backgroundColor: 'transparent', // Default transparent background
     },
-    modeButtonActive: { backgroundColor: COLORS.primary, elevation: 20, shadowOpacity: 0.15, shadowRadius: 3, },
-    modeButtonText: { fontSize: 14, marginLeft: 8, color: COLORS.primary, fontWeight: '600', textAlign: 'center', },
-    modeButtonTextActive: { color: COLORS.white, },
-    modeButtonDisabled: { opacity: 0.5, },
-    modeButtonTextDisabled: { color: COLORS.disabled, },
-    textInput: { backgroundColor: COLORS.cardBackground, minHeight: 150, borderRadius: 15, paddingTop: 15, padding: 15, fontSize: 16, color: COLORS.text, marginBottom: 20, borderWidth: 1, borderColor: COLORS.border, lineHeight: 24, textAlignVertical: 'top', },
-    textInputDisabled: { backgroundColor: COLORS.background, color: COLORS.lightText, borderColor: COLORS.disabled + '60', opacity: 0.7, },
-    voiceInputWrapper: { alignItems: 'center', marginBottom: 20, padding: 15, backgroundColor: COLORS.white, borderRadius: 15, borderWidth: 1, borderColor: COLORS.border, minHeight: 180, justifyContent: 'center', },
-    micButton: { backgroundColor: COLORS.primary, width: 75, height: 75, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 15, elevation: 20, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 5, borderWidth: 2, borderColor: COLORS.primaryLight + '99', },
-    micButtonRecording: { backgroundColor: COLORS.recording, shadowColor: COLORS.recording, borderColor: COLORS.error + '99', },
-    micButtonDisabled: { backgroundColor: COLORS.disabled, opacity: 0.6, elevation: 20, shadowColor: COLORS.disabled, borderColor: COLORS.disabled + '50', },
-    voiceStatusText: { fontSize: 15, color: COLORS.textSecondary, marginBottom: 10, textAlign: 'center', minHeight: 20, },
-    permissionButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.error + '20', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20, marginBottom: 15, borderWidth: 1, borderColor: COLORS.error + '50', },
-    permissionButtonText: { color: COLORS.error, fontSize: 14, fontWeight: '600', },
-    audioPathDebugText: { fontSize: 11, color: COLORS.lightText, marginTop: 5, fontStyle: 'italic', opacity: 0.8, }, // Kept for potential future use
-    promptContainer: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: COLORS.accentLight, padding: 15, borderRadius: 12, marginBottom: 15, borderLeftWidth: 4, borderLeftColor: COLORS.accent, },
-    promptIcon: { marginRight: 10, marginTop: 2, color: COLORS.primary, },
-    promptText: { fontSize: 15, color: COLORS.text, flex: 1, lineHeight: 22, },
-    saveButton: { backgroundColor: COLORS.secondary, paddingVertical: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', marginBottom: 25, elevation: 20, shadowColor: '#000000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3, borderWidth: 1, borderColor: COLORS.secondary + '50', minHeight: 50, },
-    saveButtonDisabled: { backgroundColor: COLORS.disabled, opacity: 0.7, elevation: 20, shadowOpacity: 0.1, borderColor: COLORS.disabled + '50', },
-    saveButtonText: { color: COLORS.text, fontSize: 16, fontWeight: '600', },
-    aiContainer: { backgroundColor: COLORS.cardBackground, borderRadius: 15, padding: 20, marginBottom: 25, borderWidth: 1, borderColor: COLORS.border, },
-    aiLoadingContainer: { alignItems: 'center', paddingVertical: 30, },
-    aiStatusText: { marginTop: 15, fontSize: 15, color: COLORS.primary, textAlign: 'center', fontWeight: '500', },
-    aiHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, paddingBottom: 15, borderBottomWidth: 1, borderBottomColor: COLORS.border, },
-    aiTitle: { fontSize: 18, fontWeight: '600', marginLeft: 12, },
-    aiSection: { marginBottom: 15, },
-    subtleHeading: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.8, },
-    tagContainer: { flexDirection: 'row', flexWrap: 'wrap', },
-    tag: { backgroundColor: COLORS.tagBackground, color: COLORS.text, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 15, marginRight: 8, marginBottom: 8, fontSize: 13, fontWeight: '500', },
-    suggestionsContainer:{ },
-    suggestionItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10, padding: 12, backgroundColor: COLORS.suggestionBackground, borderRadius: 10, },
-    suggestionIcon: { marginRight: 12, marginTop: 3, color: COLORS.primary, },
-    suggestionText: { fontSize: 15, color: COLORS.text, flex: 1, lineHeight: 22, },
-    insightCard: { backgroundColor: COLORS.white, borderRadius: 15, padding: 20, marginBottom: 25, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 30, },
-    insightIcon:{ marginRight: 15, color: COLORS.secondary, },
-    insightContent: { flex: 1, },
-    insightTitle: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 5, },
-    insightText: { fontSize: 14, color: COLORS.textSecondary, lineHeight: 20, },
-    historyContainer: { marginTop: 20, },
-    historyTitle: { fontSize: 20, fontWeight: '600', color: COLORS.text, marginBottom: 15, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, },
-    historyItem: { backgroundColor: COLORS.cardBackground, borderRadius: 12, padding: 15, borderWidth: 1, borderColor: COLORS.border, },
+    modeButtonActive: {
+        backgroundColor: COLORS.primary, // Use new primary color
+        borderColor: COLORS.primary, // Match border
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    modeButtonText: {
+        fontSize: 14,
+        marginLeft: 8,
+        color: COLORS.primary, // Use new primary color for text
+        fontWeight: '600',
+    },
+    modeButtonTextActive: {
+        color: COLORS.white, // White text on active button
+    },
+    modeButtonDisabled: {
+        borderColor: COLORS.disabled + '80', // Use disabled color border
+        backgroundColor: COLORS.background + '99', // Slightly off-white background
+        opacity: 0.7,
+    },
+    modeButtonTextDisabled: {
+        color: COLORS.disabled, // Use disabled color for text
+    },
+    textInput: {
+        backgroundColor: COLORS.cardBackground,
+        minHeight: 160, // Slightly taller
+        borderRadius: 16, // Consistent radius
+        padding: 18, // Generous padding
+        fontSize: 16,
+        color: COLORS.text,
+        borderWidth: 1,
+        borderColor: COLORS.border, // Default border
+        lineHeight: 24,
+        textAlignVertical: 'top',
+        // marginBottom handled by buttonContainer
+    },
+    textInputDisabled: {
+        backgroundColor: COLORS.background,
+        color: COLORS.lightText,
+        borderColor: COLORS.disabled + '60',
+        opacity: 0.7,
+    },
+    // Add focus style simulation if needed, e.g., change borderColor, but requires state
+    // textInputFocused: {
+    //     borderColor: COLORS.primary,
+    // },
+    voiceInputWrapper: {
+        alignItems: 'center',
+        padding: 20,
+        backgroundColor: COLORS.white,
+        borderRadius: 16, // Consistent radius
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        minHeight: 200, // Ensure enough space
+        justifyContent: 'center',
+        // marginBottom handled by buttonContainer
+    },
+    micButton: {
+        backgroundColor: COLORS.primary, // Use new primary
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 18,
+        shadowColor: COLORS.primary, // Themed shadow
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+        elevation: 5, // Slightly more prominent
+        borderWidth: 2,
+        borderColor: 'rgba(255, 255, 255, 0.5)', // Inner highlight
+    },
+    micButtonRecording: {
+        backgroundColor: COLORS.recording, // Use themed recording color
+        shadowColor: COLORS.recording,
+    },
+    micButtonDisabled: {
+        backgroundColor: COLORS.disabled,
+        opacity: 0.6,
+        elevation: 0,
+        shadowColor: 'transparent',
+        borderColor: COLORS.disabled + '50',
+    },
+    voiceStatusText: {
+        fontSize: 15,
+        color: COLORS.textSecondary,
+        textAlign: 'center',
+        minHeight: 22,
+        marginTop: 8,
+    },
+    permissionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.error + '15', // Lighter error background
+        paddingVertical: 10,
+        paddingHorizontal: 18,
+        borderRadius: 25,
+        marginBottom: 18,
+        borderWidth: 1,
+        borderColor: COLORS.error + '40',
+    },
+    permissionButtonText: {
+        color: COLORS.error,
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    promptContainer: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: COLORS.accentLight, // Use new accent light
+        padding: 18,
+        borderRadius: 16, // Consistent radius
+        marginBottom: 18,
+        borderLeftWidth: 5,
+        borderLeftColor: COLORS.accent, // Use new accent color
+    },
+    promptIcon: {
+        marginRight: 12,
+        marginTop: 3,
+        color: COLORS.accent, // Use new accent color for icon
+    },
+    promptText: {
+        fontSize: 16,
+        color: COLORS.text, // Use main text color
+        flex: 1,
+        lineHeight: 24,
+    },
+    buttonContainer: {
+        marginTop: 25, // Space above button
+        marginBottom: 30, // Space below button
+    },
+    saveButton: {
+        backgroundColor: COLORS.primary, // Use new primary color
+        paddingVertical: 16, // Consistent padding
+        borderRadius: 16, // Consistent radius
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'row',
+        shadowColor: COLORS.primary, // Themed shadow
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 5,
+        elevation: 3,
+        minHeight: 54,
+    },
+    saveButtonDisabled: {
+        backgroundColor: COLORS.disabled, // Use standard disabled color
+        shadowColor: 'transparent',
+        elevation: 0,
+        opacity: 0.7,
+    },
+    saveButtonText: {
+        color: COLORS.white, // White text on primary/disabled button
+        fontSize: 17,
+        fontWeight: '700', // Bold text
+    },
+    aiContainer: {
+        backgroundColor: COLORS.cardBackground,
+        borderRadius: 16, // Consistent radius
+        // padding: 0, // Remove padding, add to sections
+        marginBottom: 30, // Space below card
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        overflow: 'hidden', // Clip content to rounded corners
+        shadowColor: '#9DB5CC', // Softer shadow
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 5,
+        elevation: 2,
+    },
+    aiLoadingContainer: {
+        alignItems: 'center',
+        paddingVertical: 50,
+    },
+    aiStatusText: {
+        marginTop: 18,
+        fontSize: 16,
+        color: COLORS.primary, // Use primary color for loading text
+        textAlign: 'center',
+        fontWeight: '500',
+    },
+    // Specific styles for AI error/warning cards
+    aiErrorCard: {
+        borderLeftWidth: 5,
+        borderLeftColor: COLORS.error,
+        backgroundColor: COLORS.error + '10', // Light error background tint
+        borderColor: COLORS.error + '50', // Error border
+    },
+    aiWarningCard: {
+        borderLeftWidth: 5,
+        borderLeftColor: COLORS.anxious, // Use anxious color for warning border
+        backgroundColor: COLORS.anxious + '10', // Light warning background tint
+        borderColor: COLORS.anxious + '50', // Warning border
+    },
+    aiHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 18,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.border + '99', // Slightly lighter border inside card
+        // Removed background color here to allow card background tint to show
+    },
+    aiTitle: {
+        fontSize: 19,
+        fontWeight: '600',
+        marginLeft: 15,
+    },
+    aiSection: {
+        paddingHorizontal: 20,
+        paddingTop: 18,
+        paddingBottom: 10, // Default bottom padding
+        // Removed background color to allow card background tint to show
+    },
+    subtleHeading: {
+        fontSize: 13, // Keep slightly smaller
+        fontWeight: '700', // Bolder
+        color: COLORS.textSecondary, // Use themed secondary text
+        marginBottom: 12,
+        textTransform: 'uppercase',
+        letterSpacing: 0.9, // More spacing
+        opacity: 0.9,
+    },
+    tagContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginBottom: 10, // Add margin below tags if suggestions follow
+    },
+    tag: {
+        backgroundColor: COLORS.tagBackground, // Use themed tag background
+        color: COLORS.primary, // Use primary color for tag text
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16, // Match card radius
+        marginRight: 8,
+        marginBottom: 8,
+        fontSize: 13,
+        fontWeight: '600', // Slightly bolder tags
+    },
+    suggestionsContainer:{
+        paddingBottom: 5, // Add padding if needed
+    },
+    suggestionItem: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginBottom: 12,
+        paddingVertical: 14, // More vertical padding
+        paddingHorizontal: 16,
+        backgroundColor: COLORS.suggestionBackground, // Use themed suggestion background
+        borderRadius: 12, // Slightly smaller radius for items inside card
+    },
+    suggestionIcon: {
+        marginRight: 14,
+        marginTop: 4,
+        color: COLORS.primary, // Use primary color for icon
+    },
+    suggestionText: {
+        fontSize: 15,
+        color: COLORS.text, // Main text color
+        flex: 1,
+        lineHeight: 23,
+    },
+    insightCard: {
+        backgroundColor: COLORS.white, // Keep white
+        borderRadius: 16, // Consistent radius
+        padding: 20,
+        marginBottom: 30,
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        shadowColor: "#9DB5CC", // Softer shadow
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    insightIcon:{
+        marginRight: 18,
+        color: COLORS.secondary, // Use new secondary color
+    },
+    insightContent: {
+        flex: 1,
+    },
+    insightTitle: {
+        fontSize: 17,
+        fontWeight: '600',
+        color: COLORS.text, // Main text color
+        marginBottom: 6,
+    },
+    insightText: {
+        fontSize: 14,
+        color: COLORS.textSecondary, // Secondary text color
+        lineHeight: 21,
+    },
+    historyContainer: {
+        marginTop: 35, // More space above history
+    },
+    historyTitle: {
+        fontSize: 22,
+        fontWeight: '700',
+        color: COLORS.text, // Main text color
+        marginBottom: 20,
+        paddingBottom: 12,
+        borderBottomWidth: 1.5,
+        borderBottomColor: COLORS.border, // Use themed border
+    },
+    historyItem: {
+        backgroundColor: COLORS.cardBackground,
+        borderRadius: 16, // Consistent radius
+        paddingVertical: 18, // Increased padding
+        paddingHorizontal: 16,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        shadowColor: "#9DB5CC", // Subtle shadow for history items
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 2, // Subtle elevation
+    },
     historyHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between', // Space between left group and delete button
-        marginBottom: 8,
+        justifyContent: 'space-between',
+        marginBottom: 10,
     },
-    historyHeaderLeft: { // Group mood, date, time
+    historyHeaderLeft: {
         flexDirection: 'row',
         alignItems: 'center',
-        flexShrink: 1, // Allow shrinking if needed
-        marginRight: 8, // Space before delete button
+        flexShrink: 1,
+        marginRight: 10,
     },
-    historyMoodIcon: { marginRight: 10, },
-    historyDate: { fontSize: 14, color: COLORS.text, fontWeight: '600', marginRight: 5, }, // Added margin
-    historyTime: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500', flexShrink: 1, }, // Allow time to shrink if needed
-    deleteButton: { // Style for delete button positioning
-         margin: -10, // Reduce touchable area padding
+    historyMoodIcon: {
+        marginRight: 12,
     },
-    historyPrompt: { fontSize: 13, color: COLORS.primary, fontStyle: 'italic', marginBottom: 8, opacity: 0.9, },
-    historyText: { fontSize: 14, color: COLORS.textSecondary, lineHeight: 20, marginBottom: 5, },
-    historyFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', // Space out mode text and controls
-        marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border, },
-    footerLeft: { flexDirection: 'row', alignItems: 'center', }, // Group mode icon and text
-    historyModeText: { fontSize: 12, color: COLORS.lightText, marginLeft: 6, textTransform: 'capitalize', },
-    audioControls: { flexDirection: 'row', alignItems: 'center', }, // Container for play button and time
-    // Style for the container holding audio indicator icon + text
-    audioAttachedContainer: { flexDirection: 'row', alignItems: 'center', marginRight: 8, // Add some space before play button
+    historyDateTimeContainer: { // No longer directly used, but styles kept for reference
+        flexDirection: 'column',
+        alignItems: 'flex-start',
     },
-    audioAttachedIcon: { // Style for the paperclip icon
-         marginRight: 4,
+    historyDate: {
+        fontSize: 14, // Slightly smaller date
+        color: COLORS.text,
+        fontWeight: '600',
+        marginRight: 8, // Add space between date and time
     },
-    audioAttachedText: { // Style for the "Audio" text
-         fontSize: 11,
-         color: COLORS.lightText,
-         fontStyle: 'italic',
-         opacity: 0.8,
+    historyTime: {
+        fontSize: 12, // Slightly smaller time
+        color: COLORS.textSecondary,
+        fontWeight: '500',
+        // marginTop: 2, // Removed vertical alignment, place next to date
     },
-    playPauseButton: { margin: -8, // Reduce margin/padding to make it fit better visually
-         padding: 0,
+    deleteButton: { // Style for adjusting hit area/margins if needed
+        margin: -10, // Counteract default padding if necessary
+        padding: 4, // Ensure some padding for touch
+        // Color is applied directly in IconButton
     },
-    historyPlaceholder: { fontSize: 15, color: COLORS.textSecondary, textAlign: 'center', marginTop: 40, paddingBottom: 20, fontStyle: 'italic', },
-    errorText: { color: COLORS.error, fontSize: 14, fontWeight: '500', textAlign: 'center', marginVertical: 10, paddingHorizontal: 10, },
-    loginPrompt: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 15, backgroundColor: COLORS.accentLight, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: COLORS.accent, },
-    loginPromptText: { fontSize: 16, color: COLORS.text, fontWeight: '500', },
+    historyPrompt: {
+        fontSize: 14,
+        color: COLORS.accent, // Use accent color for prompt text
+        fontStyle: 'italic',
+        marginBottom: 10,
+        opacity: 0.9,
+        lineHeight: 20,
+    },
+    historyText: {
+        fontSize: 15,
+        color: COLORS.textSecondary,
+        lineHeight: 22,
+        marginBottom: 12, // More space before footer
+    },
+    historyFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.border + '99', // Lighter border inside card
+    },
+    footerLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    historyModeText: {
+        fontSize: 12,
+        color: COLORS.lightText,
+        marginLeft: 8,
+        textTransform: 'capitalize',
+        fontWeight: '500',
+    },
+    audioControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    audioAttachedContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginRight: 10,
+    },
+    audioAttachedIcon: {
+        marginRight: 5,
+    },
+    audioAttachedText: {
+        fontSize: 11,
+        color: COLORS.lightText,
+        fontStyle: 'italic',
+        opacity: 0.8,
+    },
+    playPauseButton: {
+        margin: -10, // Keep adjusted margin for touch area
+        padding: 0,
+        // Color is applied directly in IconButton
+    },
+    historyPlaceholder: {
+        fontSize: 15,
+        color: COLORS.textSecondary,
+        textAlign: 'center',
+        marginTop: 50,
+        paddingBottom: 30,
+        fontStyle: 'italic',
+        lineHeight: 22,
+    },
+    errorText: {
+        color: COLORS.error, // Use themed error color
+        fontSize: 14,
+        fontWeight: '500',
+        textAlign: 'center',
+        marginVertical: 15,
+        paddingHorizontal: 15,
+        lineHeight: 20,
+    },
+    loginPrompt: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 18,
+        backgroundColor: COLORS.error + '10', // Use light error background
+        borderRadius: 16, // Consistent radius
+        marginBottom: 25,
+        borderWidth: 1,
+        borderColor: COLORS.error + '40', // Use error border
+    },
+    loginPromptText: {
+        fontSize: 16,
+        color: COLORS.error, // Use error text color
+        fontWeight: '500',
+    },
 });
 
 

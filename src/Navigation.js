@@ -37,6 +37,8 @@ import SoundTherapy from './screens/SoundTherapy';
 import VoiceModeAI from './screens/VoiceModeAI';
 import JournalAI from './screens/JournalAI';
 import UserInfoScreen from './screens/UserInfoScreen';
+import NotificationScreen from './screens/NotificationScreen';
+import MindfulBreathWelcome from './screens/MindfulBreathWelcome';
 
 // --- Colors ---
 const colors = {
@@ -127,8 +129,10 @@ const MainTabs = () => (
         tabBar={(props) => <CustomBottomNav {...props} />}
         screenOptions={{ headerShown: false }}
     >
+        {/* Screens directly under the Tab Navigator */}
         <Tab.Screen name="HomeScreen" component={HomeScreen} />
         <Tab.Screen name="ChatWelcomeScreen" component={ChatWelcomeScreen} />
+        {/* The VoiceModeAI screen is navigated to via the central button, not listed here */}
         <Tab.Screen name="JournalAI" component={JournalAI} />
         <Tab.Screen name="SoundTherapy" component={SoundTherapy} />
     </Tab.Navigator>
@@ -141,11 +145,13 @@ const AppStack = () => (
         <AppStackNav.Screen name="Doctors" component={Doctors} />
         <AppStackNav.Screen name="ConnectDoctor" component={ConnectDoctor} />
         <AppStackNav.Screen name="ChatScreen" component={ChatScreen} />
-        <AppStackNav.Screen name="MindfulBreath" component={MindfulBreath} />
+        <AppStackNav.Screen name="MindfulBreathWelcome" component={MindfulBreathWelcome} />
         <AppStackNav.Screen name="Resources" component={Resources} />
         <AppStackNav.Screen name="MoodTrackerScreen" component={MoodTrackerScreen} />
         <AppStackNav.Screen name="ProfileScreen" component={ProfileScreen} />
+        {/* VoiceModeAI is part of the App Stack, accessible via central tab button */}
         <AppStackNav.Screen name="VoiceModeAI" component={VoiceModeAI} />
+        <AppStackNav.Screen name="NotificationScreen" component={NotificationScreen} />
     </AppStackNav.Navigator>
 );
 
@@ -184,17 +190,20 @@ const RootNavigation = () => {
             setInternalLoading(true);
             setProfileStatus('checking');
         } else if (!user) {
-            setInternalLoading(false);
-            setProfileStatus('checking');
+            // User logged out or initial state is logged out
+            setInternalLoading(false); // Stop loading, show Auth screens
+            setProfileStatus('checking'); // Reset profile status irrelevant if not logged in
         } else {
-            setInternalLoading(true);
-            setProfileStatus('checking');
+            // User is logged in, start profile check process
+            setInternalLoading(true); // Start/continue loading until profile checked
+            setProfileStatus('checking'); // Set status to trigger profile check effect
         }
     }, [user, authLoading]); // Runs when auth state changes
 
 
     // --- Effect 2: Performs the Profile Check when status is 'checking' ---
     useEffect(() => {
+        // Only run check if auth is loaded, user exists, and profile needs checking
         if (!authLoading && user && profileStatus === 'checking') {
             console.log("Profile Check Effect Triggered: Checking Firestore...");
             setInternalLoading(true); // Ensure loading indicator shows during check
@@ -210,6 +219,7 @@ const RootNavigation = () => {
                     if (userDoc.exists) {
                         const data = userDoc.data();
                         // *** Adjust field names 'fullName' and 'gender' if necessary ***
+                        // Check if essential profile fields exist and are not empty
                         if (data && data.fullName && data.fullName.trim() !== '' && data.gender) {
                             console.log("Firestore Check Result: Profile Complete.");
                             setProfileStatus('complete');
@@ -219,26 +229,26 @@ const RootNavigation = () => {
                         }
                     } else {
                         console.log("Firestore Check Result: User document doesn't exist.");
-                        setProfileStatus('incomplete'); // Needs profile info
+                        setProfileStatus('incomplete'); // Needs profile info if doc doesn't exist
                     }
                 } catch (error) {
                     console.error("Firestore Check Error:", error);
-                    setProfileStatus('incomplete'); // Assume incomplete on error
+                    setProfileStatus('incomplete'); // Assume incomplete on error to be safe
                 } finally {
                     console.log("Profile check finished, setting internalLoading=false");
-                    setInternalLoading(false); // Check finished
+                    setInternalLoading(false); // Check finished, stop loading indicator
                 }
             };
             checkUserProfile();
         } else if (!authLoading && user && profileStatus !== 'checking') {
-            // If status is already determined, ensure loading is false.
+            // If status is already determined ('complete' or 'incomplete'), ensure loading is false.
              if (internalLoading) {
                  console.log(`Profile Check Effect: Status is ${profileStatus}, ensuring loading is false.`);
                  setInternalLoading(false);
              }
         }
         // This effect depends on profileStatus to run when the callback triggers a re-check
-    }, [user, authLoading, profileStatus]); // Runs when auth state or profileStatus changes
+    }, [user, authLoading, profileStatus, internalLoading]); // Added internalLoading dependency
 
 
     // --- Render Logic ---
@@ -259,24 +269,29 @@ const RootNavigation = () => {
                 <RootStack.Screen name="Auth" component={AuthScreens} />
             ) : profileStatus === 'incomplete' ? (
                 // --- User Logged In, Profile Incomplete ---
-                 <RootStack.Screen name="UserInfo">
-                     {(props) => ( // props from react-navigation (includes navigation, route)
-                         <UserInfoScreen
-                             {...props} // Pass navigation/route props down
-                             // Define the callback function to be called from UserInfoScreen
-                             onProfileComplete={() => {
-                                 console.log("onProfileComplete triggered in RootNavigation. Re-checking profile...");
-                                 setProfileStatus('checking'); // Set status back to checking
-                                 setInternalLoading(true);     // Show loading indicator during re-check
-                             }}
-                         />
-                     )}
-                 </RootStack.Screen>
+                // *** FIX APPLIED HERE ***
+                <RootStack.Screen
+                    name="UserInfo"
+                    // Pass the render function directly to the 'component' prop
+                    component={(props) => (
+                        <UserInfoScreen
+                            {...props} // Pass navigation and route props down
+                            // Define the callback function to be called from UserInfoScreen
+                            onProfileComplete={() => {
+                                console.log("onProfileComplete triggered in RootNavigation. Re-checking profile...");
+                                setProfileStatus('checking'); // Set status back to checking
+                                setInternalLoading(true);      // Show loading indicator during re-check
+                            }}
+                        />
+                    )}
+                />
             ) : profileStatus === 'complete' ? (
                 // --- User Logged In, Profile Complete ---
                 <RootStack.Screen name="App" component={AppStack} />
             ) : (
                  // --- Fallback/Checking State --- (Should ideally be covered by internalLoading)
+                 // This case should technically not be reached if internalLoading handles the checking state.
+                 // Kept as a safety fallback.
                  <RootStack.Screen name="FallbackLoading" component={LoadingIndicatorScreen} />
             )}
         </RootStack.Navigator>
@@ -334,11 +349,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         marginTop: -35, // Pulls the button up
-        elevation: 0, // Add some elevation for the central button if desired
+        elevation: 4, // Give central button slight elevation
         shadowColor: '#000', // Optional shadow for central button
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.2,
-        shadowRadius: 3,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
     },
 });
 
