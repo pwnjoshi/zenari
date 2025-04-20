@@ -11,7 +11,7 @@ import auth from '@react-native-firebase/auth';
 import { AuthProvider } from './src/screens/AuthProvider';
 
 // Disable phone-verification in dev
-auth().settings.appVerificationDisabledForTesting = __DEV__;
+// auth().settings.appVerificationDisabledForTesting = __DEV__;
 
 const Root = () => (
   <AuthProvider>
