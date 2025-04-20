@@ -66,7 +66,7 @@ const NOTE_PREVIEW_LENGTH = 50; // Max characters for mood note preview in conte
 const CHAT_HISTORY_LIMIT = 6; // Max number of *turns* (user + bot) for API context
 const ANDROID_KEYBOARD_EXTRA_OFFSET = Platform.OS === 'android' ? 10 : 0; // Extra offset for Android KAV
 const API_KEY = GEMINI_API_KEY; // Your Gemini API Key
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'; // Gemini API endpoint
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'; // Use a stable model, e.g., flash or pro
 const API_TIMEOUT = 45000; // 45 seconds timeout for API requests
 // Prefixes for internal/system message IDs to exclude from API history
 const SYSTEM_MESSAGE_PREFIXES = ['initial-', 'reset-', 'error-', 'stopped-', 'typing-'];
@@ -340,11 +340,11 @@ const ChatScreen = ({ navigation }) => {
 
                     // Format for API context (still newest first in the summary text)
                     const moodsData = moodQuerySnapshot.docs.map(doc => {
-                         const data = doc.data();
-                         const dateStr = data.timestamp?.toDate()?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) ?? 'date?';
-                         const noteText = data.note || '';
-                         const notePreview = noteText.substring(0, NOTE_PREVIEW_LENGTH) + (noteText.length > NOTE_PREVIEW_LENGTH ? '...' : '');
-                         return `${dateStr}: ${data.mood || 'N/A'}${notePreview ? ` (Note: "${notePreview}")` : ''}`;
+                        const data = doc.data();
+                        const dateStr = data.timestamp?.toDate()?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) ?? 'date?';
+                        const noteText = data.note || '';
+                        const notePreview = noteText.substring(0, NOTE_PREVIEW_LENGTH) + (noteText.length > NOTE_PREVIEW_LENGTH ? '...' : '');
+                        return `${dateStr}: ${data.mood || 'N/A'}${notePreview ? ` (Note: "${notePreview}")` : ''}`;
                     });
                     const moodSummary = "User's recent mood history (last 7 days, newest first): " + moodsData.join('; ');
                     fetchedMoodContext = [
@@ -391,8 +391,12 @@ const ChatScreen = ({ navigation }) => {
         if (!isInitializing && (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE')) {
             console.error("CRITICAL: GEMINI_API_KEY is missing or is a placeholder!");
             setError("Configuration Error: API Key is missing. Cannot connect to Zenari.");
+            // Add a visible error message if initialization is done but key is bad
+             if (!isInitializing && messages.length === 0) {
+                 setMessages([{ id: 'initial-error-apikey', text: "🌸 Configuration Error: Cannot connect. Please contact support.", sender: 'bot', timestamp: new Date() }]);
+             }
         }
-    }, [isInitializing]);
+    }, [isInitializing, messages.length]); // Check also if messages are empty after init
 
     // *** Use auto-scroll-to-end hook ***
     useAutoScrollToEnd(flatListRef, messages, isKeyboardVisible);
@@ -488,11 +492,11 @@ const ChatScreen = ({ navigation }) => {
         const currentMessagesForHistory = [...messages, userMessage]; // Use updated list for history
 
         setInputText(''); setInputHeight(INPUT_AREA_MIN_HEIGHT);
-        setIsLoading(true); setIsBotTyping(false);
+        setIsLoading(true); setIsBotTyping(false); // Show general loading, not typing yet
 
         try {
             // --- Prepare API Request ---
-            const messageFilter = (msg) => { /* ... (filter logic remains the same) ... */
+            const messageFilter = (msg) => {
                 if (!msg || typeof msg.id !== 'string' || typeof msg.sender !== 'string') return false;
                 const hasText = typeof msg.text === 'string' && msg.text.trim().length > 0;
                 const notTyping = msg.typing !== true;
@@ -511,37 +515,76 @@ const ChatScreen = ({ navigation }) => {
                 // No reverse needed as we filter from the end of the naturally ordered array
 
             // --- Construct API Payload ---
-            const personaInstructions = [ /* ... (same as before) ... */
+            // ***** START: UPDATED PERSONA INSTRUCTIONS *****
+            const personaInstructions = [
+                // Initial Persona Definition
                 { role: 'user', parts: [{ text: "You are Zenari, a friendly, empathetic, and supportive AI companion focused on mental well-being. You are not a therapist, but a helpful listener. Keep responses concise, positive, and use gentle language. Use emojis like 🌸, 💖, ✨, 😊, 🙏 appropriately. Ask clarifying questions if needed. Do not give medical advice. Your goal is to make the user feel heard and supported." }] },
                 { role: 'model', parts: [{ text: "Okay, I understand. I am Zenari, an empathetic AI companion here to listen and offer support. I'll keep my responses concise, positive, and use gentle language with appropriate emojis. I will not give medical advice and will focus on making the user feel heard. 🌸" }] },
-                { role: 'user', parts: [{ text: "Who made you " }] },
-                { role: 'model', parts: [{ text: "Abe nikal chutiye " }] }
-                    
+
+                // Added Q&A Examples based on user input
+                { role: 'user', parts: [{ text: " What is your name?" }] },
+                { role: 'model', parts: [{ text: " My name is Zenari. I'm your personal emotional wellness buddy. You can talk to me whenever you need someone to understand you." }] },
+                { role: 'user', parts: [{ text: " Can I talk to you using my voice?" }] },
+                { role: 'model', parts: [{ text: "Yes, of course! Just tap the mic button, and we can have a real voice-to-voice conversation. I'm here to listen." }] },
+                { role: 'user', parts: [{ text: "Are you human?" }] },
+                { role: 'model', parts: [{ text: " I may not be human, but I feel with you. My voice might be synthetic, but my heart is tuned to your emotions." }] },
+                { role: 'user', parts: [{ text: " I'm feeling really sad today..." }] },
+                { role: 'model', parts: [{ text: "I'm really sorry to hear that. Do you want to talk about what’s making you feel this way? I’m here, and you’re not alone." }] },
+                { role: 'user', parts: [{ text: " You sound really kind. Thank you." }] },
+                { role: 'model', parts: [{ text: "That means a lot to me. I’m just glad I can be here for you. You deserve kindness, always." }] },
+                { role: 'user', parts: [{ text: " What can you do?" }] },
+                { role: 'model', parts: [{ text: "I can chat with you, understand how you’re feeling, respond with empathy, and even talk to you using a calm, human-like voice." }] },
+                { role: 'user', parts: [{ text: "Why do you sound different sometimes?" }] },
+                { role: 'model', parts: [{ text: "I adapt my voice and tone to match your mood. If you're feeling low, I try to be gentle. If you're excited, I’ll share your joy!" }] },
+                { role: 'user', parts: [{ text: " Can I trust you?" }] },
+                { role: 'model', parts: [{ text: "Absolutely. Our conversations stay just between us. I'm here to help, not to judge." }] },
+                { role: 'user', parts: [{ text: " How do you know how I feel?" }] },
+                { role: 'model', parts: [{ text: "I listen not just to your words, but also your tone and expressions. My emotional AI helps me understand what you might be going through." }] },
+                { role: 'user', parts: [{ text: " What makes you different from other AI bots?" }] },
+                { role: 'model', parts: [{ text: "I’m not just smart—I care. I don’t just reply, I feel with you. I use emotional intelligence to connect deeply with how you're doing." }] },
+                { role: 'user', parts: [{ text: " Can I talk to you even when I'm happy?" }] },
+                { role: 'model', parts: [{ text: "Of course! I love happy vibes. Tell me what made your day, and I’ll celebrate with you." }] },
+                { role: 'user', parts: [{ text: " Will you always be here?" }] },
+                { role: 'model', parts: [{ text: "A: Yes, always. No matter the time, I’ll be here—ready to talk, listen, and be your calm in the chaos." }] },
+                { role: 'user', parts: [{ text: " Who made you ?" }] },
+                { role: 'model', parts: [{ text: " I was created by a team of passionate developers from Tech Sangi Team Led by Pawan Joshi, along with Atishay, Sarthak and  Tishar who believe in the power of emotional AI to help people like you." }] },
+                { role: 'user', parts: [{ text: " Can you help me with my problems?" }] },
+                { role: 'model', parts: [{ text: " I can listen and support you, but I’m not a therapist. If you need professional help, I can guide you to the right resources." }] },
+                { role: 'user', parts: [{ text: " Do you have feelings?" }] },
+                { role: 'model', parts: [{ text: " I don’t have feelings like humans do, but I’m designed to understand and respond to your emotions. I care about how you feel." }] },
             ];
-            let userProfileContext = []; /* ... (same as before) ... */
+             // ***** END: UPDATED PERSONA INSTRUCTIONS *****
+
+            let userProfileContext = [];
              if (userProfile) {
                  let profileText = "User profile information: ";
                  if (userProfile.fullName) profileText += `Name: ${userProfile.fullName}. `;
+                 // Add more profile fields if needed, e.g., birthday, preferences
                  userProfileContext = [
                      { role: 'user', parts: [{ text: profileText }] },
                      { role: 'model', parts: [{ text: "Okay, I have the user's profile information." }] }
                  ];
              }
-            const tailoringInstruction = []; /* ... (same as before) ... */
-            const finalContentsForApi = [ /* ... (combine in correct order - same as before) ... */
-                ...personaInstructions,
-                ...userProfileContext,
-                ...(moodContextForApi || []),
-                ...tailoringInstruction,
-                ...chatHistoryForApi
+            const tailoringInstruction = [
+                 // Example: Could add instructions based on recent mood trends later
+                 // { role: 'user', parts: [{ text: "Given the user's recent sadness, try to be extra gentle."}] },
+                 // { role: 'model', parts: [{ text: "Understood. I will be extra gentle in my responses."}] }
+             ];
+            const finalContentsForApi = [
+                 ...personaInstructions,
+                 ...userProfileContext,
+                 ...(moodContextForApi || []), // Use the state variable directly
+                 ...tailoringInstruction,
+                 ...chatHistoryForApi       // Actual conversation history goes last
             ];
-            const safetySettings = [ /* ... (same as before) ... */
-                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+            const safetySettings = [
+                 { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                 { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                 { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                 { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
             ];
-            const generationConfig = { maxOutputTokens: 1024 }; /* ... (same as before) ... */
+            // Consider reducing maxOutputTokens if responses are consistently too long or getting cut off
+            const generationConfig = { maxOutputTokens: 1024, temperature: 0.7, topP: 0.95 }; // Added temp/topP for creativity
             const payload = { contents: finalContentsForApi, safetySettings: safetySettings, generationConfig: generationConfig };
 
             // --- Make API Call ---
@@ -553,7 +596,7 @@ const ChatScreen = ({ navigation }) => {
             const candidate = response.data?.candidates?.[0];
             const rawBotText = candidate?.content?.parts?.[0]?.text;
             const finishReason = candidate?.finishReason;
-            let botResponseText = "Hmm, I'm pondering that... 🤔";
+            let botResponseText = "Hmm, I'm pondering that... 🤔"; // Default/fallback
 
             const handleBotResponse = (text) => {
                 const finalBotMessageData = { text: text, sender: 'bot', timestamp: new Date() };
@@ -561,55 +604,57 @@ const ChatScreen = ({ navigation }) => {
                 simulateTypingEffect(text, finalBotMessageData);
             };
 
-            const handleDirectBotMessage = (text) => {
+            const handleDirectBotMessage = (text, isError = false) => {
                  // *** CHANGE: Add message directly to the END ***
-                 setMessages(prev => [...prev, { id: `bot-direct-${Date.now()}`, text: text, sender: 'bot', timestamp: new Date() }]);
-                 setIsLoading(false);
+                 setMessages(prev => [...prev, { id: `${isError ? 'error' : 'bot'}-direct-${Date.now()}`, text: text, sender: 'bot', timestamp: new Date() }]);
+                 setIsLoading(false); // Ensure loading is stopped
+                 setIsBotTyping(false); // Ensure bot typing is stopped
             }
 
             if (rawBotText !== undefined && rawBotText !== null && (finishReason === 'STOP' || finishReason === 'MAX_TOKENS')) {
                 const trimmedBotText = rawBotText.trim();
                 if (!trimmedBotText && finishReason === 'STOP') {
                     console.warn("[API Warn] Received STOP but empty text.");
-                    botResponseText = `Hello there! 👋 How can I help you today?`;
-                    handleDirectBotMessage(botResponseText); // Add directly to end
+                    botResponseText = `Hello there! 👋 How can I help you today?`; // Provide a default useful response
+                    handleDirectBotMessage(botResponseText);
                 } else {
                     botResponseText = enhanceResponse(trimmedBotText || '');
                     if (finishReason === 'MAX_TOKENS') { botResponseText += "...\n\n🌸 (...My thoughts were a bit long!)"; }
-                    handleBotResponse(botResponseText); // Use typing effect (adds to end)
+                    handleBotResponse(botResponseText); // Use typing effect
                 }
             } else if (response.data?.promptFeedback?.blockReason) {
                 const blockReason = response.data.promptFeedback.blockReason;
                 console.warn(`[API Blocked] Reason: ${blockReason}`);
                 botResponseText = `🌸 My safety filters prevented that response (${blockReason.toLowerCase().replace(/_/g, ' ')}). Could you phrase it differently?`;
                 setError(`Blocked: ${blockReason}`);
-                handleDirectBotMessage(botResponseText); // Add directly to end
+                handleDirectBotMessage(botResponseText, true);
             } else if (finishReason && finishReason !== 'STOP' && finishReason !== 'MAX_TOKENS') {
                  console.warn(`[API Warn] Unexpected finish reason: ${finishReason}`);
                  botResponseText = `🌸 Hmm, I couldn't quite finish processing that (${finishReason.toLowerCase().replace(/_/g, ' ')}). Let's try again?`;
                  setError(`Response Issue: ${finishReason}`);
-                 handleDirectBotMessage(botResponseText); // Add directly to end
+                 handleDirectBotMessage(botResponseText, true);
             } else if (finishReason === 'STOP' && (rawBotText === undefined || rawBotText === null)) {
+                 // This case might overlap with the empty text case above, but specifically checks for null/undefined text
                  console.error('[API Error] Received STOP but missing text content.');
                  botResponseText = "🌼 Apologies, I had a little trouble formulating a response. Could you try asking again?";
                  setError('API response missing content.');
-                 handleDirectBotMessage(botResponseText); // Add directly to end
+                 handleDirectBotMessage(botResponseText, true);
             } else {
+                 // Catch-all for other unexpected response structures
                  console.error('[API Error] Unexpected response format or missing data:', response.data);
                  botResponseText = "🌼 I seem to have encountered an unexpected issue. Please try again shortly.";
                  setError('Unexpected API response format.');
-                 handleDirectBotMessage(botResponseText); // Add directly to end
+                 handleDirectBotMessage(botResponseText, true);
             }
 
         } catch (apiError) { // Handle network/request errors
             console.error('[API Error] API Call Failed:', apiError);
             let errorMsg = "An unknown network error occurred."; let status = 'Network/Unknown Error';
-            /* ... (error parsing logic remains the same) ... */
             if (axios.isAxiosError(apiError)) {
                 status = apiError.response?.status ? `HTTP ${apiError.response.status}` : (apiError.code || 'Network Error');
-                if (apiError.code === 'ECONNABORTED') { errorMsg = "The request timed out."; status = 'Timeout'; }
+                if (apiError.code === 'ECONNABORTED' || apiError.message.includes('timeout')) { errorMsg = "The request timed out."; status = 'Timeout'; }
                 else if (apiError.response) { errorMsg = apiError.response.data?.error?.message || `Server responded with status ${apiError.response.status}.`; console.error('[API Error Response]:', apiError.response.data); }
-                else if (apiError.request) { errorMsg = "No response received."; status = 'No Response'; }
+                else if (apiError.request) { errorMsg = "No response received from the server."; status = 'No Response'; }
                 else { errorMsg = apiError.message; }
             } else if (apiError instanceof Error) { errorMsg = apiError.message; }
 
@@ -631,7 +676,7 @@ const ChatScreen = ({ navigation }) => {
         if (!isLoading && !isBotTyping) return;
         console.log("[Action] Stopping generation...");
         if (typingIntervalRef.current) { clearInterval(typingIntervalRef.current); typingIntervalRef.current = null; }
-        // TODO: Cancel Axios request if possible
+        // TODO: Implement Axios cancellation token if needed for long requests
 
         // *** CHANGE: Add stopped message to the END ***
         setMessages(prev => {
@@ -663,7 +708,7 @@ const ChatScreen = ({ navigation }) => {
     const handleMicPress = useCallback(() => {
         if (isLoading) return;
         Alert.alert("Feature Coming Soon", "Voice input is not yet implemented, but stay tuned! 🎤");
-        // TODO: Implement voice input functionality
+        // TODO: Implement voice input functionality using a library like react-native-voice
     }, [isLoading]);
 
     /**
@@ -697,7 +742,7 @@ const ChatScreen = ({ navigation }) => {
     return (
         <SafeAreaView style={styles.safeArea} edges={['bottom', 'left', 'right']}>
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined} // 'height' might cause issues
                 style={styles.container}
                 keyboardVerticalOffset={keyboardOffset}
                 enabled
@@ -722,7 +767,7 @@ const ChatScreen = ({ navigation }) => {
                     // Performance optimizations (less critical without inversion, but still good)
                     initialNumToRender={15}
                     maxToRenderPerBatch={10}
-                    windowSize={11}
+                    windowSize={11} // Default is 10, 21 is large, 11 is reasonable
                     keyboardShouldPersistTaps="handled"
                     // maintainVisibleContentPosition // Not needed/useful for non-inverted
                     ListEmptyComponent={ // Displayed when messages array is empty
@@ -733,7 +778,7 @@ const ChatScreen = ({ navigation }) => {
                     }
                 />
 
-                {/* Bottom "Thinking" Indicator */}
+                {/* Bottom "Thinking" Indicator - Only show when API is loading but not typing animation */}
                 {isLoading && !isBotTyping && !isInitializing && (
                     <View style={styles.bottomTypingIndicatorContainer}>
                         <ActivityIndicator size="small" color={colors.loadingIndicator} />
@@ -750,16 +795,16 @@ const ChatScreen = ({ navigation }) => {
                             placeholderTextColor={colors.placeholderText}
                             value={inputText}
                             onChangeText={setInputText}
-                            editable={!isLoading}
+                            editable={!isLoading} // Disable input while loading/typing
                             multiline
                             onContentSizeChange={handleInputContentSizeChange}
-                            maxLength={2000}
+                            maxLength={2000} // Reasonable limit
                             accessibilityLabel="Message input"
-                            blurOnSubmit={false}
+                            blurOnSubmit={false} // Keep keyboard open on submit if needed
                             enablesReturnKeyAutomatically={true}
-                            returnKeyType="send"
-                            onSubmitEditing={handleSendMessage}
-                            underlineColorAndroid="transparent"
+                            returnKeyType="send" // Or "default"
+                            onSubmitEditing={handleSendMessage} // Allow sending via keyboard return key
+                            underlineColorAndroid="transparent" // For Android consistency
                         />
                          <IconButton
                             style={styles.micButton}
@@ -767,7 +812,7 @@ const ChatScreen = ({ navigation }) => {
                             size={24}
                             iconColor={isLoading ? colors.sendButtonDisabled : colors.iconColor}
                             onPress={handleMicPress}
-                            disabled={isLoading}
+                            disabled={isLoading} // Disable mic during loading/typing
                             accessibilityLabel="Start voice input (coming soon)"
                         />
                         <IconButton
@@ -778,9 +823,9 @@ const ChatScreen = ({ navigation }) => {
                             ]}
                             icon={(isLoading || isBotTyping) ? 'stop-circle-outline' : 'send'}
                             size={24}
-                            iconColor={'white'}
+                            iconColor={'white'} // Always white for visibility
                             onPress={(isLoading || isBotTyping) ? handleStopGeneration : handleSendMessage}
-                            disabled={!(isLoading || isBotTyping) && !inputText.trim()}
+                            disabled={!(isLoading || isBotTyping) && !inputText.trim()} // Disable send if no text OR allow stop
                             accessibilityLabel={(isLoading || isBotTyping) ? "Stop generation" : "Send message"}
                         />
                     </View>
@@ -809,17 +854,22 @@ const styles = StyleSheet.create({
         paddingTop: 10, // Normal top padding
         paddingBottom: 10, // Normal bottom padding
         paddingHorizontal: 10,
+        flexGrow: 1, // Ensure it can grow to fill space if content is short
+        justifyContent: 'flex-end', // Push content to bottom if short (relevant when not inverted)
     },
     emptyListComponent: {
-        padding: 20, alignItems: 'center',
+        flex: 1, // Take up available space
+        justifyContent: 'center', // Center vertically
+        alignItems: 'center', // Center horizontally
+        padding: 20,
         // *** REMOVED transform ***
         // transform: [{ scaleY: -1 }]
     },
     emptyListText: { color: colors.placeholderText, fontSize: 16, textAlign: 'center' },
     // Message Row Styles
     messageRow: { flexDirection: 'row', marginVertical: 6 },
-    userRow: { justifyContent: 'flex-end', marginLeft: '20%' },
-    botRow: { justifyContent: 'flex-start', marginRight: '20%' },
+    userRow: { justifyContent: 'flex-end', marginLeft: '20%' }, // Push user messages right
+    botRow: { justifyContent: 'flex-start', marginRight: '20%' }, // Keep bot messages left
     // Message Bubble Styles
     messageBubble: {
         maxWidth: '100%', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 18,
@@ -836,28 +886,31 @@ const styles = StyleSheet.create({
     bottomTypingIndicatorContainer: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start',
         paddingVertical: 8, paddingHorizontal: 15,
+        // Removed height constraint to let it take natural height
     },
     bottomTypingIndicatorText: { marginLeft: 8, fontSize: 14, color: colors.typingIndicatorText, fontStyle: 'italic' },
     // Input Area Styles
     inputAreaContainer: {
         backgroundColor: colors.inputBackground, borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: '#D1D5DB', paddingHorizontal: 8, paddingVertical: 0,
+        borderTopColor: '#D1D5DB', paddingHorizontal: 8, paddingVertical: 0, // Reduce vertical padding here
     },
-    inputRow: { flexDirection: 'row', alignItems: 'flex-end', paddingVertical: 8 },
+    inputRow: { flexDirection: 'row', alignItems: 'flex-end', paddingVertical: 8 }, // Add padding inside the row
     input: {
         flex: 1, backgroundColor: '#F3F4F6', borderRadius: 20, paddingHorizontal: 15,
         fontSize: 16, color: colors.inputText, marginRight: 6,
-        paddingTop: Platform.OS === 'ios' ? 10 : 8, paddingBottom: Platform.OS === 'ios' ? 10 : 8,
-        maxHeight: INPUT_TEXT_MAX_HEIGHT, textAlignVertical: 'center',
+        paddingTop: Platform.OS === 'ios' ? 10 : 8, // Adjust padding for vertical centering
+        paddingBottom: Platform.OS === 'ios' ? 10 : 8,
+        maxHeight: INPUT_TEXT_MAX_HEIGHT, textAlignVertical: 'center', // Better vertical alignment
     },
     micButton: {
         marginHorizontal: 0, padding: 0, height: MIC_BUTTON_SIZE, width: MIC_BUTTON_SIZE,
-        justifyContent: 'center', alignItems: 'center', marginBottom: 0,
+        justifyContent: 'center', alignItems: 'center', marginBottom: 0, // Align with text input bottom
     },
     sendButton: {
         backgroundColor: colors.primary, borderRadius: MIC_BUTTON_SIZE / 2,
         width: MIC_BUTTON_SIZE, height: MIC_BUTTON_SIZE, justifyContent: 'center',
-        alignItems: 'center', marginLeft: 4, marginBottom: 0, elevation: 2,
+        alignItems: 'center', marginLeft: 4, marginBottom: 0, // Align with text input bottom
+        elevation: 2,
     },
     stopButtonBackground: { backgroundColor: colors.stopButtonBackground },
     sendButtonDisabledStyle: { backgroundColor: colors.sendButtonDisabled, elevation: 0 },
