@@ -68,40 +68,78 @@ class SoundTherapy extends React.Component {
         this.state = {
             isPlaying: false,
             currentSound: null,
-            progress: 0,
-            duration: 0,
+            progress: 0, // Progress in milliseconds
+            duration: 0, // Duration in milliseconds
             isLoadingSound: false,
         };
-        this.soundRef = null;
-        this.progressInterval = null;
-        this.sessionStartTime = null;
-        this.soundOptions = soundOptions;
+        this.soundRef = null; // Reference to the react-native-sound instance
+        this.progressInterval = null; // Interval ID for progress updates
+        this.sessionStartTime = null; // Timestamp when session started
+        this.soundOptions = soundOptions; // Make sound options accessible
     }
 
-    componentWillUnmount() { /* ... componentWillUnmount ... */
+    componentWillUnmount() {
+        console.log("[SoundTherapy] Component unmounting. Cleaning up...");
         this.clearProgressTimer();
-        if (this.soundRef) { this.soundRef.release(); this.soundRef = null; }
+        // Ensure sound is stopped and released properly
+        if (this.soundRef) {
+            console.log("[SoundTherapy] Releasing sound resource on unmount.");
+            this.soundRef.stop(() => { // Ensure it's stopped before release
+                this.soundRef?.release(); // Use optional chaining just in case
+                this.soundRef = null;
+            });
+        }
     }
-    clearProgressTimer = () => { /* ... clearProgressTimer ... */
-        if (this.progressInterval) { clearInterval(this.progressInterval); this.progressInterval = null; }
+
+    // Clears the progress update interval
+    clearProgressTimer = () => {
+        if (this.progressInterval) {
+            clearInterval(this.progressInterval);
+            this.progressInterval = null;
+            // console.log("[SoundTherapy] Progress timer cleared.");
+        }
     };
-    startProgressTimer = () => { /* ... startProgressTimer ... */
-        this.clearProgressTimer();
+
+    // Starts the interval to update the progress state
+    startProgressTimer = () => {
+        this.clearProgressTimer(); // Clear any existing timer first
+        console.log("[SoundTherapy] Starting progress timer...");
         this.progressInterval = setInterval(() => {
-            if (this.soundRef && this.state.isPlaying) {
+            // Check if soundRef exists (it might be released during cleanup)
+            if (this.soundRef) {
                 this.soundRef.getCurrentTime((seconds, isPlayingNow) => {
-                    if (isPlayingNow) { this.setState({ progress: seconds * 1000 }); }
-                    else if (this.state.isPlaying) { console.log("[SoundTherapy] Sound stopped unexpectedly."); this.handleStop(); }
+                    // Check if the component expects the sound to be playing
+                    if (this.state.isPlaying) {
+                        if (isPlayingNow) {
+                            // Update progress state if sound is actively playing
+                            this.setState({ progress: seconds * 1000 });
+                        }
+                        // *** REMOVED THE CHECK THAT CAUSED PREMATURE STOPPING ***
+                        // else {
+                        //     // This else block was likely causing the issue, as isPlayingNow
+                        //     // might briefly be false right after starting.
+                        //     // The play() callback handles the actual end of playback.
+                        //     console.log("[SoundTherapy Timer] Sound stopped unexpectedly according to getCurrentTime, but state isPlaying is true. Investigating...");
+                        //     // this.handleStop(); // DO NOT STOP HERE UNLESS NEEDED
+                        // }
+                    } else {
+                        // If component state is not isPlaying, clear the timer
+                        this.clearProgressTimer();
+                    }
                 });
-            } else { this.clearProgressTimer(); }
-        }, 500);
+            } else {
+                // If soundRef is null (e.g., after stopping), clear the timer
+                this.clearProgressTimer();
+            }
+        }, 500); // Update progress every 500ms
     };
 
     // --- Gamification Logic (Namespaced Syntax) ---
     updateGamificationData = async () => {
         const currentUser = auth().currentUser;
-        if (!currentUser) { console.log("No user logged in, skipping gamification."); return; }
+        if (!currentUser) { console.log("[SoundTherapy] No user logged in, skipping gamification."); return; }
         const userId = currentUser.uid;
+        // References using namespaced syntax
         const gamificationRef = firestore().collection('users').doc(userId).collection('gamification').doc('summary');
         const firstSoundAchievementRef = firestore().collection('users').doc(userId).collection('achievements').doc(FIRST_SOUND_ACHIEVEMENT_ID);
         const statsRef = firestore().collection('users').doc(userId).collection('stats').doc('summary');
@@ -115,7 +153,8 @@ class SoundTherapy extends React.Component {
                 console.log(`[SoundTherapy] Points/Sessions incremented.`);
                 // 2. Check/Unlock Achievement
                 const achievementDoc = await transaction.get(firstSoundAchievementRef);
-                if (!achievementDoc.exists || !achievementDoc.data()?.earned) { // Use .exists property
+                // Use .exists property correctly
+                if (!achievementDoc.exists || !achievementDoc.data()?.earned) {
                     console.log(`[SoundTherapy] Unlocking achievement: ${FIRST_SOUND_ACHIEVEMENT_ID}`);
                     transaction.set(firstSoundAchievementRef, { id: FIRST_SOUND_ACHIEVEMENT_ID, name: FIRST_SOUND_ACHIEVEMENT_NAME, earned: true, earnedAt: firestore.FieldValue.serverTimestamp() }, { merge: true });
                 }
@@ -123,77 +162,130 @@ class SoundTherapy extends React.Component {
             console.log('[SoundTherapy] Gamification transaction successful!');
         } catch (error) {
             console.error("[SoundTherapy] Error in gamification transaction: ", error);
-            // *** Improved Error Alert for Timeout ***
+            // Improved Error Alert for Timeout
             if (error.code === 'firestore/deadline-exceeded') {
-                Alert.alert(
-                    "Network Timeout",
-                    "Could not confirm progress update due to network issues. Your progress might be saved anyway. Please check your profile later."
-                );
+                Alert.alert("Network Timeout", "Could not confirm progress update due to network issues. Your progress might be saved anyway.");
             } else {
-                // Generic error for other transaction failures
-                Alert.alert(
-                    "Update Error",
-                    `Could not update progress: ${error.message}`
-                );
+                Alert.alert("Update Error", `Could not update progress: ${error.message}`);
             }
         }
     }
 
     // --- Playback Controls ---
-    playSound = (soundOption) => { /* ... playSound function (mostly unchanged) ... */
+    // Handles selecting and playing a sound
+    playSound = (soundOption) => {
         console.log('[SoundTherapy] playSound called for:', soundOption.title);
-        if (this.state.isLoadingSound) return;
-        if (this.soundRef) { this.handleStop(); }
+        if (this.state.isLoadingSound) {
+            console.log("[SoundTherapy] Already loading a sound, ignoring request.");
+            return; // Prevent multiple loads
+        }
+        // If another sound is already playing, stop it first
+        if (this.soundRef) {
+            console.log("[SoundTherapy] Stopping previous sound before playing new one.");
+            this.handleStop(); // Stop and clean up previous sound
+        }
 
+        // Set loading state and current sound immediately
         this.setState({ isLoadingSound: true, progress: 0, duration: 0, currentSound: soundOption, isPlaying: false });
-        this.updateGamificationData(); // Attempt gamification update
 
+        // Attempt gamification update (can happen while loading)
+        this.updateGamificationData();
+
+        console.log('[SoundTherapy] Loading sound from source:', soundOption.source);
         const newSound = new Sound(soundOption.source, (error) => {
-            this.setState({ isLoadingSound: false });
+            // Loading finished callback
+            this.setState({ isLoadingSound: false }); // Loading is done, regardless of error
+
             if (error) {
                 console.error('[SoundTherapy] Failed to load sound:', error);
                 Alert.alert("Error", `Failed to load audio: ${error.message}`);
-                this.setState({ currentSound: null }); return;
+                this.setState({ currentSound: null }); // Reset current sound if loading failed
+                return;
             }
+
+            // Sound loaded successfully
             console.log('[SoundTherapy] Sound loaded. Duration:', newSound.getDuration());
-            this.soundRef = newSound;
-            const durationMs = newSound.getDuration() * 1000;
-            this.sessionStartTime = Date.now();
-            this.setState({ duration: durationMs });
-            newSound.setVolume(1);
+            this.soundRef = newSound; // Store reference
+            const durationMs = newSound.getDuration() * 1000; // Get duration in ms
+            this.sessionStartTime = Date.now(); // Record start time
+
+            // Update state with duration
+            this.setState({ duration: durationMs > 0 ? durationMs : 0 }); // Ensure duration is non-negative
+
+            newSound.setVolume(1); // Set volume
+            newSound.setNumberOfLoops(-1); // Loop indefinitely
+
+            // Play the sound
             newSound.play((success) => {
-                if (success) { console.log('[SoundTherapy] Playback finished successfully.'); this.handleStop(); }
-                else { console.error('[SoundTherapy] Playback failed.'); this.handleStop(); }
+                // This callback executes when playback *finishes* (or fails to play)
+                // Since we loop indefinitely, this theoretically only runs on failure now.
+                if (success) {
+                    console.log('[SoundTherapy] Playback finished successfully (unexpected for looping sound).');
+                } else {
+                    console.error('[SoundTherapy] Playback failed.');
+                    Alert.alert("Playback Error", "Could not play the selected sound.");
+                }
+                 // Stop and clean up state regardless of success/failure in this callback
+                 // This might be redundant if handleStop is called elsewhere, but safe.
+                this.handleStop();
             });
+
+            // Update state to reflect playback started
             this.setState({ isPlaying: true });
-            this.startProgressTimer();
+            this.startProgressTimer(); // Start updating the progress bar
         });
     };
 
-    handleStop = () => { /* ... handleStop function (unchanged) ... */
+    // Handles stopping the currently playing sound
+    handleStop = () => {
         console.log("[SoundTherapy] handleStop called.");
-        this.clearProgressTimer();
-        this.setState({ isLoadingSound: false });
+        this.clearProgressTimer(); // Stop progress updates
+        this.setState({ isLoadingSound: false }); // Ensure loading indicator is off
+
         if (this.soundRef) {
-            const soundToRelease = this.soundRef; this.soundRef = null;
-            soundToRelease.stop(() => { console.log("[SoundTherapy] Sound stopped and released."); soundToRelease.release(); });
+            const soundToRelease = this.soundRef;
+            this.soundRef = null; // Clear the reference *before* async stop/release
+
+            console.log("[SoundTherapy] Stopping and releasing sound...");
+            soundToRelease.stop(() => {
+                console.log("[SoundTherapy] Sound stopped.");
+                soundToRelease.release(); // Release resources after stopping
+                console.log("[SoundTherapy] Sound released.");
+            });
         }
+
+        // Reset player state
         this.setState({ isPlaying: false, currentSound: null, progress: 0, duration: 0 });
-        this.sessionStartTime = null;
+        this.sessionStartTime = null; // Reset session start time
     };
 
 
     // --- UI Rendering ---
-    render() { /* ... render function (mostly unchanged, uses View wrapper) ... */
+    render() {
         const { currentSound, progress, duration, isPlaying, isLoadingSound } = this.state;
+
         return (
+            // Use a standard View wrapper instead of LinearGradient for now
             <View style={styles.container}>
                 <Text style={styles.header}>Sound Therapy</Text>
+
+                {/* Show Grid or Player */}
                 {!currentSound ? (
+                    // Sound Selection Grid
                     <ScrollView contentContainerStyle={styles.gridContainer}>
                         {this.soundOptions.map((sound) => (
-                            <TouchableOpacity key={sound.id} style={styles.soundCard} onPress={() => this.playSound(sound)} activeOpacity={0.7}>
-                                <ImageBackground source={sound.cardBackground} style={styles.cardImageBackground} resizeMode="cover" borderRadius={18}>
+                            <TouchableOpacity
+                                key={sound.id}
+                                style={styles.soundCard}
+                                onPress={() => this.playSound(sound)}
+                                activeOpacity={0.7}
+                            >
+                                <ImageBackground
+                                    source={sound.cardBackground}
+                                    style={styles.cardImageBackground}
+                                    resizeMode="cover"
+                                    borderRadius={18} // Match card's borderRadius
+                                >
                                     <View style={styles.cardContent}>
                                         <MIcon name={sound.icon} size={36} color={colors.textLight} style={styles.cardIcon} />
                                         <Text style={styles.cardTitle}>{sound.title}</Text>
@@ -203,17 +295,50 @@ class SoundTherapy extends React.Component {
                         ))}
                     </ScrollView>
                 ) : (
+                    // Sound Player View
                     <View style={styles.playerContainer}>
-                        {currentSound.background && ( <Video source={currentSound.background} style={StyleSheet.absoluteFill} resizeMode="cover" repeat={true} muted={true} paused={!isPlaying || isLoadingSound} playInBackground={true} playWhenInactive={true} ignoreSilentSwitch={"ignore"} onError={(e) => console.log('[Video Error]', e)} /> )}
+                        {/* Background Video (Optional) */}
+                        {currentSound.background && (
+                            <Video
+                                source={currentSound.background}
+                                style={StyleSheet.absoluteFill}
+                                resizeMode="cover"
+                                repeat={true}
+                                muted={true} // Background video is always muted
+                                paused={!isPlaying || isLoadingSound} // Pause video if sound isn't playing/loading
+                                playInBackground={true}
+                                playWhenInactive={true}
+                                ignoreSilentSwitch={"ignore"}
+                                onError={(e) => console.log('[Video Error]', e)}
+                            />
+                        )}
+                        {/* Player Overlay */}
                         <View style={styles.playerOverlay}>
-                            {isLoadingSound ? ( <ActivityIndicator size="large" color={colors.textLight} /> )
-                            : ( <>
+                            {isLoadingSound ? (
+                                // Loading Indicator
+                                <ActivityIndicator size="large" color={colors.textLight} />
+                            ) : (
+                                // Player Controls
+                                <>
                                     <Text style={styles.currentTitle}>{currentSound.title}</Text>
-                                    <Slider style={styles.progressBar} minimumValue={0} maximumValue={Math.max(1, duration)} value={Math.min(progress, duration)} minimumTrackTintColor={colors.sliderMinTrack} maximumTrackTintColor={colors.sliderMaxTrack} thumbTintColor={colors.sliderThumb} disabled={true} />
+                                    {/* Progress Bar */}
+                                    <Slider
+                                        style={styles.progressBar}
+                                        minimumValue={0}
+                                        maximumValue={Math.max(1, duration)} // Ensure max is at least 1 to prevent errors
+                                        value={Math.min(progress, duration)} // Clamp value to duration
+                                        minimumTrackTintColor={colors.sliderMinTrack}
+                                        maximumTrackTintColor={colors.sliderMaxTrack}
+                                        thumbTintColor={colors.sliderThumb}
+                                        disabled={true} // Slider is display-only
+                                    />
+                                    {/* Controls */}
                                     <View style={styles.controls}>
+                                        {/* Stop Button */}
                                         <TouchableOpacity onPress={this.handleStop} style={styles.mainButton}>
                                             <MIcon name="stop" size={32} color={colors.stopButtonIcon} />
                                         </TouchableOpacity>
+                                        {/* Add Play/Pause button here if needed later */}
                                     </View>
                                 </>
                             )}
@@ -225,21 +350,103 @@ class SoundTherapy extends React.Component {
     }
 }
 
-const styles = StyleSheet.create({ /* ... styles (mostly unchanged) ... */
-    container: { flex: 1, backgroundColor: colors.backgroundGradientStart, },
-    header: { fontSize: 28, fontWeight: 'bold', color: colors.textDark, marginTop: Platform.OS === 'ios' ? 70 : 40, marginBottom: 30, textAlign: 'center', paddingHorizontal: 20, },
-    gridContainer: { paddingHorizontal: 15, paddingBottom: 30, },
-    soundCard: { width: '100%', height: 170, marginBottom: 20, borderRadius: 20, overflow: 'hidden', elevation: 5, shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 5, backgroundColor: colors.cardBackground, },
-    cardImageBackground: { flex: 1, justifyContent: 'flex-end', },
-    cardContent: { backgroundColor: colors.overlayColor, paddingVertical: 15, paddingHorizontal: 20, alignItems: 'center', },
-    cardIcon: { marginBottom: 8, },
-    cardTitle: { fontSize: 19, color: colors.textLight, fontWeight: '600', textAlign: 'center', },
-    playerContainer: { flex: 1, margin: 15, borderRadius: 20, overflow: 'hidden', elevation: 6, shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, justifyContent: 'center', alignItems: 'center' },
-    playerOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.playerOverlayColor, justifyContent: 'center', alignItems: 'center', padding: 25, },
-    currentTitle: { fontSize: 30, color: colors.textLight, fontWeight: 'bold', textAlign: 'center', marginBottom: 50, },
-    progressBar: { width: '95%', height: 40, marginVertical: 25, },
-    controls: { marginTop: 50, },
-    mainButton: { backgroundColor: colors.stopButtonBg, padding: 25, borderRadius: 50, elevation: 8, shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, },
+// --- Styles ---
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: colors.backgroundGradientStart, // Use start color as solid background
+    },
+    header: {
+        fontSize: 26, // Slightly smaller header
+        fontWeight: 'bold',
+        color: colors.textDark,
+        marginTop: Platform.OS === 'ios' ? 60 : 30, // Adjusted top margin
+        marginBottom: 25, // Adjusted bottom margin
+        textAlign: 'center',
+        paddingHorizontal: 20,
+    },
+    gridContainer: {
+        paddingHorizontal: 15,
+        paddingBottom: 30,
+    },
+    soundCard: {
+        width: '100%',
+        height: 160, // Slightly smaller cards
+        marginBottom: 18, // Adjusted spacing
+        borderRadius: 18, // Slightly less rounded
+        overflow: 'hidden',
+        elevation: 4, // Slightly reduced elevation
+        shadowColor: colors.shadowColor,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.18, // Adjusted shadow
+        shadowRadius: 4,
+        backgroundColor: colors.cardBackground,
+    },
+    cardImageBackground: {
+        flex: 1,
+        justifyContent: 'flex-end', // Align content to bottom
+    },
+    cardContent: {
+        backgroundColor: colors.overlayColor, // Semi-transparent overlay
+        paddingVertical: 12, // Adjusted padding
+        paddingHorizontal: 18, // Adjusted padding
+        alignItems: 'center',
+    },
+    cardIcon: {
+        marginBottom: 6, // Reduced spacing
+    },
+    cardTitle: {
+        fontSize: 18, // Adjusted font size
+        color: colors.textLight,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    playerContainer: {
+        flex: 1,
+        margin: 15,
+        borderRadius: 18, // Match card radius
+        overflow: 'hidden',
+        elevation: 5, // Slightly reduced elevation
+        shadowColor: colors.shadowColor,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.22,
+        shadowRadius: 5,
+        justifyContent: 'center', // Center content vertically
+        alignItems: 'center', // Center content horizontally
+        backgroundColor: '#333', // Fallback background if video doesn't load
+    },
+    playerOverlay: {
+        ...StyleSheet.absoluteFillObject, // Take up entire space
+        backgroundColor: colors.playerOverlayColor, // Darker overlay for player
+        justifyContent: 'center', // Center vertically
+        alignItems: 'center', // Center horizontally
+        padding: 20, // Consistent padding
+    },
+    currentTitle: {
+        fontSize: 28, // Slightly smaller title
+        color: colors.textLight,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: 40, // Adjusted spacing
+    },
+    progressBar: {
+        width: '90%', // Slightly narrower bar
+        height: 40, // Standard height
+        marginVertical: 20, // Adjusted spacing
+    },
+    controls: {
+        marginTop: 40, // Adjusted spacing
+    },
+    mainButton: { // Style for the Stop button
+        backgroundColor: colors.stopButtonBg, // White-ish background
+        padding: 20, // Slightly smaller padding
+        borderRadius: 40, // Make it circular
+        elevation: 6, // Slightly reduced elevation
+        shadowColor: colors.shadowColor,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.25,
+        shadowRadius: 5,
+    },
 });
 
 export default SoundTherapy;

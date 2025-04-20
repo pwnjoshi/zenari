@@ -951,35 +951,37 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginBottom: 30,
     },
-    modeSelector: {
+     modeSelector: {
         flexDirection: 'row',
-        justifyContent: 'center', // Center buttons when wrapped
-        flexWrap: 'wrap',
+        justifyContent: 'space-between', // Changed to space-between
         marginBottom: 30,
-        backgroundColor: COLORS.white, // Keep white background
+        backgroundColor: COLORS.white,
         borderRadius: 30,
-        paddingVertical: 6, // Adjust padding
+        paddingVertical: 6,
         paddingHorizontal: 6,
         borderWidth: 1,
-        borderColor: COLORS.border, // Use themed border color
-        shadowColor: '#9DB5CC', // Softer shadow color
+        borderColor: COLORS.border,
+        shadowColor: '#9DB5CC',
         shadowOffset: { width: 0, height: 3 },
         shadowOpacity: 0.15,
         shadowRadius: 6,
-        elevation: 4, // Subtle elevation
+        elevation: 4,
+        gap: 8, // Added gap for spacing between buttons
     },
+
     modeButton: {
+        flex: 1, // Equal width distribution
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 10,
-        paddingHorizontal: 16, // Comfortable padding
+        paddingHorizontal: 12, // Reduced horizontal padding
         borderRadius: 25,
-        margin: 4, // Spacing for wrapped items
         justifyContent: 'center',
         minHeight: 42,
-        borderWidth: 1.5, // Border for inactive state
-        borderColor: COLORS.border, // Use themed border
-        backgroundColor: 'transparent', // Default transparent background
+        borderWidth: 1.5,
+        borderColor: COLORS.border,
+        backgroundColor: 'transparent',
+        margin: 0, // Removed margin
     },
     modeButtonActive: {
         backgroundColor: COLORS.primary, // Use new primary color
@@ -992,7 +994,7 @@ const styles = StyleSheet.create({
     },
     modeButtonText: {
         fontSize: 14,
-        marginLeft: 8,
+        marginLeft: 5,
         color: COLORS.primary, // Use new primary color for text
         fontWeight: '600',
     },
@@ -1281,7 +1283,7 @@ const styles = StyleSheet.create({
         lineHeight: 21,
     },
     historyContainer: {
-        marginTop: 35, // More space above history
+        marginTop: 10, // More space above history
     },
     historyTitle: {
         fontSize: 22,

@@ -1,8 +1,22 @@
 /**
  * MoodTrackerScreen.js
- * FINAL VERSION - Set to use Firestore data by default.
- * Includes detailed logging for diagnosing data loading issues.
- * FIXED: Corrected startDate calculation for 'Daily' chart view.
+ * FINAL VERSION - Updated Apr 20, 2025
+ * - Fixed automatic AI insight refresh loop by correcting useCallback dependencies.
+ * - Integrated NEW Calming Color Scheme (COLORS constant).
+ * - Removed old color imports and defaultColors/safeColors logic.
+ * - Updated getMoodColor to use new COLORS scheme.
+ * - Updated chartConfig, calendarTheme, and StyleSheet to use new COLORS.
+ * - Mapped timeline activity icons to new COLORS.
+ * - Fixed AI Insight API Key usage (imports from @env).
+ * - Added validation check for the imported API key.
+ * - Pie Chart now reflects the selected time range (Daily, Weekly, Monthly).
+ * - Includes detailed logging for diagnosing data loading issues.
+ * - Corrected startDate calculation for 'Daily' chart view.
+ * - Refined 'Daily' Line Chart to show individual entries.
+ * - Added dynamic keys to charts for forced re-renders.
+ * - Added 'No Data' message for Pie Chart.
+ * - Fixed "Invalid hook call" error by moving formatTime (useCallback) inside the component.
+ * - ***FIXED CHART RESPONSIVENESS (Apr 20): Adjusted chart width calculation based on container padding. Removed fixed PieChart paddingLeft. Removed LineChart yLabelsOffset.***
  */
 import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import {
@@ -36,39 +50,90 @@ import notifee, {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// --- IMPORT COLORS ---
-// *** IMPORTANT: Adjust the path '../constants/colors' if your file is located elsewhere ***
-import { colors } from '../constants/colors';
-// -------------------
+// --- NEW COLOR SCHEME ---
+const COLORS = {
+    background: '#F4F8F7', // Very light, slightly cool grey
+    primary: '#6AB7A8',     // Muted Teal/Turquoise
+    primaryLight: '#A8D8CF', // Lighter Teal
+    secondary: '#F7D9AE',    // Soft Peach/Orange Accent
+    secondaryLight: '#FBEFDD', // Very Light Peach
+    accent: '#A8A6CE',      // Muted Lavender (Used for prompts/accents)
+    accentLight: '#DCDAF8', // Very Light Lavender
+
+    text: '#3A506B',        // Dark Slate Blue (Good contrast)
+    textSecondary: '#6B819E', // Medium Slate Blue
+    lightText: '#A3B1C6',    // Light Slate Blue (Placeholders)
+    white: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    border: '#D8E2EB',        // Light Grey-Blue Border
+    error: '#E57373',         // Soft Red
+    disabled: '#B0BEC5',       // Blue Grey (Standard disabled)
+
+    // Mood Specific Colors (Updated)
+    happy: '#FFD166',        // Sunny Yellow ('Very Happy', 'Excited')
+    sad: '#90BDE1',          // Soft Blue ('Sad')
+    calm: '#6AB7A8',         // Primary Teal ('Stable/Calm')
+    neutral: '#B0BEC5',       // Disabled/Neutral Grey (Default)
+    anxious: '#F7A072',       // Warmer Orange ('Worried') // Consider mapping 'Worried' here
+    stressed: '#A8A6CE',      // Accent Lavender // Consider mapping 'Worried' or a new mood here
+    grateful: '#FFC46B',      // Golden Yellow // If 'Grateful' mood is added
+
+    // Activity Specific Colors (Mapped to new scheme)
+    sleepColor: '#90BDE1', // Soft Blue (like sad)
+    exerciseColor: '#6AB7A8', // Primary Teal (like calm)
+    socialColor: '#F7D9AE', // Soft Peach (Secondary)
+
+    tagBackground: '#E6F4F1',        // Light Teal Background for Tags
+    suggestionBackground: '#FBEFDD',  // Light Peach Background for Suggestions
+
+    recording: '#E57373',         // Error color for recording indication
+    playButton: '#6AB7A8',        // Primary Teal for play button
+    deleteButton: '#B0BEC5',     // Subtle Grey for delete icon (less alarming)
+    transparent: 'transparent', // Keep transparent
+};
+// -----------------------
+
+// --- IMPORT API KEY ---
+import { GEMINI_API_KEY } from '@env'; // Import the key from .env
+// --------------------
+
 
 // Optional Calendar Configuration
 // LocaleConfig.locales['en'] = LocaleConfig.locales[''];
 // LocaleConfig.defaultLocale = 'en';
 
 const { width: screenWidth } = Dimensions.get('window');
+// --- Calculate Chart Width based on screen and padding ---
+// Screen padding (20*2=40) + Card padding (15*2=30) = 70 total horizontal padding
+const chartWidth = screenWidth - 70;
+// -----------------------------------------------------
 
-// --- Helper Functions ---
+
+// --- Helper Functions (Using new COLORS) ---
 const getMoodValue = (moodLabel) => {
     // Assigns a numerical value to each mood for charting
     switch (moodLabel?.toLowerCase()) {
         case 'very happy': return 5;
         case 'excited': return 4;
         case 'stable/calm': return 3;
-        case 'worried': return 2;
+        case 'worried': return 2; // Consider mapping to anxious/stressed values if needed
         case 'sad': return 1;
         default: return 0; // Default for unknown/null moods
     }
 };
 
 const getMoodColor = (moodLabel) => {
-    // Assigns a specific color to each mood for UI elements
+    // Assigns a specific color from the new COLORS scheme
     switch (moodLabel?.toLowerCase()) {
-        case 'very happy': return '#FFDA63'; // Example bright yellow
-        case 'excited': return colors.excitedOrange;
-        case 'stable/calm': return colors.calmGreen;
-        case 'sad': return colors.sadBlue;
-        case 'worried': return colors.worriedPurple;
-        default: return colors.neutralGrey; // Default for unknown/null moods
+        case 'very happy': return COLORS.happy; // Sunny Yellow
+        case 'excited': return COLORS.secondary; // Soft Peach/Orange Accent (Differentiate from Very Happy)
+        case 'stable/calm': return COLORS.calm; // Primary Teal
+        case 'sad': return COLORS.sad; // Soft Blue
+        case 'worried': return COLORS.anxious; // Warmer Orange
+        // Add other moods here if needed (e.g., grateful, stressed)
+        // case 'grateful': return COLORS.grateful;
+        // case 'stressed': return COLORS.stressed;
+        default: return COLORS.neutral; // Neutral Grey for unknown/null moods
     }
 };
 
@@ -81,7 +146,6 @@ const formatDateISO = (date) => {
         return now.toISOString().split('T')[0];
     }
     // Ensure the date is treated in local timezone before formatting
-    // This helps avoid potential off-by-one day errors near midnight UTC
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
     const day = String(date.getDate()).padStart(2, '0');
@@ -99,37 +163,39 @@ const getDateNDaysAgo = (days) => {
 
 // --- DEMO DATA Creation (Only used if USE_DEMO_DATA is true) ---
 const createDemoData = () => {
-  const baseDate = new Date(); // Use a consistent base date
+    const baseDate = new Date(); // Use a consistent base date
 
-  // --- Demo Moods ---
-  const demoMoods = [
-      { id: 'm1', mood: 'Stable/Calm', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 0)), note: 'Feeling okay.' },
-      { id: 'm2', mood: 'Very Happy', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 1)), note: 'Great day!' },
-      { id: 'm3', mood: 'Worried', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 2)), note: 'Stressful.' },
-      { id: 'm4', mood: 'Stable/Calm', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 3)) },
-      { id: 'm5', mood: 'Sad', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 4)), note: 'Missing friends.' },
-      { id: 'm6', mood: 'Excited', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 5)), note: 'Weekend plans!' },
-      { id: 'm7', mood: 'Stable/Calm', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 6)) },
-      { id: 'm8', mood: 'Very Happy', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 7)), note: 'Productive.' },
-      { id: 'm9', mood: 'Worried', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 10)) },
-      { id: 'm10', mood: 'Stable/Calm', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 15)) }
-  ];
+    // --- Demo Moods ---
+    const demoMoods = [
+        { id: 'm1', mood: 'Stable/Calm', timestamp: new Date(new Date(baseDate).setHours(9, 15, 0, 0)), note: 'Feeling okay.' }, // Today 9:15 AM
+        { id: 'm11', mood: 'Very Happy', timestamp: new Date(new Date(baseDate).setHours(14, 30, 0, 0)), note: 'Good lunch!' }, // Today 2:30 PM
+        { id: 'm2', mood: 'Very Happy', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 1)), note: 'Great day!' },
+        { id: 'm12', mood: 'Excited', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 1)) },
+        { id: 'm3', mood: 'Worried', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 2)), note: 'Stressful.' },
+        { id: 'm4', mood: 'Stable/Calm', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 3)) },
+        { id: 'm5', mood: 'Sad', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 4)), note: 'Missing friends.' },
+        { id: 'm6', mood: 'Excited', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 5)), note: 'Weekend plans!' },
+        { id: 'm7', mood: 'Stable/Calm', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 6)) },
+        { id: 'm8', mood: 'Very Happy', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 7)), note: 'Productive.' },
+        { id: 'm9', mood: 'Worried', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 10)) },
+        { id: 'm10', mood: 'Stable/Calm', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 15)) },
+    ];
 
-  // --- Demo Activities ---
-  const demoActivities = [
-      { id: 'a1', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 1)), duration: 7.5 },
-      { id: 'a2', type: 'Exercise', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 1)), duration: 1 },
-      { id: 'a3', type: 'Social', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 0)), duration: 2 },
-      { id: 'a4', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 0)), duration: 8 },
-      { id: 'a5', type: 'Exercise', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 2)), duration: 0.75 },
-      { id: 'a6', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 2)), duration: 6 },
-      { id: 'a7', type: 'Social', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 4)), duration: 3 },
-      { id: 'a8', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 4)), duration: 7 },
-      { id: 'a9', type: 'Exercise', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 6)), duration: 1.5 },
-      { id: 'a10', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 6)), duration: 8.5 }
-  ];
+    // --- Demo Activities ---
+    const demoActivities = [
+        { id: 'a1', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 1)), duration: 7.5 },
+        { id: 'a2', type: 'Exercise', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 1)), duration: 1 },
+        { id: 'a3', type: 'Social', timestamp: new Date(new Date(baseDate).setHours(18, 0, 0, 0)), duration: 2 }, // Today 6:00 PM
+        { id: 'a4', type: 'Sleep', timestamp: new Date(new Date(baseDate).setHours(7, 0, 0, 0)), duration: 8 }, // Today 7:00 AM
+        { id: 'a5', type: 'Exercise', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 2)), duration: 0.75 },
+        { id: 'a6', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 2)), duration: 6 },
+        { id: 'a7', type: 'Social', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 4)), duration: 3 },
+        { id: 'a8', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 4)), duration: 7 },
+        { id: 'a9', type: 'Exercise', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 6)), duration: 1.5 },
+        { id: 'a10', type: 'Sleep', timestamp: new Date(new Date(baseDate).setDate(baseDate.getDate() - 6)), duration: 8.5 }
+    ];
 
-  return { demoMoodHistory: demoMoods, demoActivityHistory: demoActivities };
+    return { demoMoodHistory: demoMoods, demoActivityHistory: demoActivities };
 };
 // -----------------
 
@@ -165,13 +231,22 @@ const MoodTrackerScreen = ({ navigation }) => {
 
     // --- Configuration Flags ---
     // *** Set to false to use Firestore data, true to use DEMO data ***
-    const USE_DEMO_DATA = false; // <<<<----- ENSURES FIRESTORE DATA IS USED
+    const USE_DEMO_DATA = true; // <<<<----- CHANGE THIS TO false TO USE FIRESTORE
     // ---------------------------
+
+    // <<< FIX: Moved formatTime inside the component body >>>
+    // Format Date object to a readable time string (e.g., "9:00 AM")
+    // Used for Daily chart labels and Modal timestamps
+    const formatTime = useCallback((date) => {
+        if (!(date instanceof Date) || isNaN(date)) return "Invalid Time";
+        return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+    }, []);
+    // <<< END FIX >>>
 
     // --- Memoized Demo Data ---
     // Only creates demo data if USE_DEMO_DATA is true, otherwise returns empty arrays
     const { demoMoodHistory, demoActivityHistory } = useMemo(() => {
-        console.log("Memoizing demo data. USE_DEMO_DATA:", USE_DEMO_DATA);
+        console.log("[DEBUG] Memoizing demo data. USE_DEMO_DATA:", USE_DEMO_DATA);
         return USE_DEMO_DATA ? createDemoData() : { demoMoodHistory: [], demoActivityHistory: [] };
     }, [USE_DEMO_DATA]);
 
@@ -229,14 +304,29 @@ const MoodTrackerScreen = ({ navigation }) => {
         loadReminderSettings();
     }, []); // Empty dependency array ensures this runs only once on mount
 
-    // --- Function to Fetch AI Insight (Using Specific Key/URL) ---
+    // --- Function to Fetch AI Insight ---
     const fetchAiInsight = useCallback(async (fullHistory) => {
-        // !!! SECURITY WARNING: Avoid hardcoding API keys in production apps. Use environment variables or a secure backend. !!!
-        const API_KEY = 'AIzaSyAGS0CEUsEKw8WS0mPqj90ebPZcu4QUk3U'; // Replace with your actual key if needed
-        const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+        const API_URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
-        // Filter history for the last 7 days (including today)
-        const sevenDaysAgo = getDateNDaysAgo(6); // 6 days ago + today = 7 days
+        // API Key Validation
+        if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_REAL_GEMINI_API_KEY_HERE' || GEMINI_API_KEY.length < 10) {
+            console.warn("AI Insight: GEMINI_API_KEY not configured or invalid in .env file. Skipping fetch.");
+            setAiInsight("AI insights unavailable (API key missing or invalid).");
+            setInsightError("API Key needed for insights.");
+            setInsightFetched(true);
+             // Ensure loading state is false if we return early
+            if (isFetchingInsight) setIsFetchingInsight(false);
+            return;
+        }
+
+        // Prevent concurrent fetches
+        if (isFetchingInsight) {
+            console.log("AI Insight: Fetch already in progress.");
+            return;
+        }
+
+        // Filter history for the last 7 days
+        const sevenDaysAgo = getDateNDaysAgo(6);
         const last7DaysHistory = fullHistory.filter(
             item => item.timestamp instanceof Date && item.timestamp >= sevenDaysAgo
         );
@@ -246,20 +336,16 @@ const MoodTrackerScreen = ({ navigation }) => {
             setAiInsight("Log mood consistently for 7-day insights!");
             setInsightError(null);
             setInsightFetched(true);
-            return;
-        }
-        if (isFetchingInsight) {
-            console.log("AI Insight: Fetch already in progress.");
-            return; // Prevent multiple simultaneous requests
+            return; // No need to fetch if no data
         }
 
-        console.log(`Fetching AI insight (7-day) using ${API_URL.split('/')[5]}...`);
-        setIsFetchingInsight(true);
+        console.log(`Generating AI insight (7-day) using Gemini API...`);
+        setIsFetchingInsight(true); // Set loading state HERE
         setInsightError(null);
         setAiInsight(''); // Clear previous insight
 
         try {
-            // Prepare data summary for the prompt
+            // Prepare data summary
             const moodsLast7Days = last7DaysHistory.map(entry => entry.mood).join(', ');
             const moodCountsLast7Days = last7DaysHistory.reduce((acc, item) => {
                 acc[item.mood] = (acc[item.mood] || 0) + 1;
@@ -267,27 +353,27 @@ const MoodTrackerScreen = ({ navigation }) => {
             }, {});
             const frequentMoodLast7Days = Object.entries(moodCountsLast7Days).sort(([, a], [, b]) => b - a)[0]?.[0] || 'varied';
 
-            // Construct the prompt for the AI model
+            // Construct prompt
             const prompt = `You are a gentle and calming wellness companion. Analyze the user's mood data from the past 7 days. Moods logged include: [${moodsLast7Days}]. The most frequent mood seems to be: ${frequentMoodLast7Days}. Based ONLY on this 7-day data, provide one *very short* (1-2 sentences MAX), sweet, positive, and encouraging insight or suggestion. Focus on simple encouragement or a small actionable tip related to the recent pattern. Be concise and warm.`;
             const requestBody = { contents: [{ parts: [{ text: prompt }] }] };
 
-            // Make the API call
-            const response = await fetch(`${API_URL}?key=${API_KEY}`, {
+            // Make API call
+            const response = await fetch(`${API_URL_BASE}?key=${GEMINI_API_KEY}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
             });
 
-            // Handle API response
+            // Handle response
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({})); // Try to parse error details
+                const errorData = await response.json().catch(() => ({}));
                 const errorMsg = `AI Error: ${response.status}. ${errorData?.error?.message || 'No details available.'}`;
                 console.error("AI Fetch Error:", errorMsg, errorData);
                 throw new Error(errorMsg);
             }
             const data = await response.json();
 
-            // Extract and set the insight text
+            // Extract insight
             if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
                 const insightText = data.candidates[0].content.parts[0].text.trim();
                 setAiInsight(insightText);
@@ -301,22 +387,29 @@ const MoodTrackerScreen = ({ navigation }) => {
             setInsightError(err.message || "Could not connect to insight service.");
             setAiInsight("Sorry, couldn't generate an insight right now.");
         } finally {
-            setIsFetchingInsight(false);
-            setInsightFetched(true); // Mark that fetch attempt completed
+            setIsFetchingInsight(false); // Set loading state false HERE
+            setInsightFetched(true);
             console.log("AI Insight fetch finished.");
         }
-    }, [isFetchingInsight]); // Dependency: only refetch if isFetchingInsight changes (prevents loops)
+        // --- CORRECTED DEPENDENCY ARRAY ---
+        // Removed isFetchingInsight. Dependencies are stable setters or constants, so empty array is fine.
+        // fetchAiInsight's reference will now be stable unless its definition changes.
+    }, []); // <<<<----- CORRECTED DEPENDENCY ARRAY
 
 
     // --- Fetch Mood/Activity Data ---
     useEffect(() => {
         console.log("Data fetching useEffect triggered. User:", user?.uid, "USE_DEMO_DATA:", USE_DEMO_DATA);
-        setLoading(true); // Start loading indicator for mood
-        setLoadingActivities(true); // Start loading indicator for activities
-        setInsightFetched(false); // Reset insight fetched status on data reload
-        setError(null); // Clear previous errors
+        setLoading(true);
+        setLoadingActivities(true);
+        // Don't reset insightFetched here, let fetchAiInsight handle it
+        // setInsightFetched(false);
+        setError(null);
 
-        // --- Option 1: Use Demo Data ---
+        // Determine which history to use
+        const historyToAnalyze = USE_DEMO_DATA ? demoMoodHistory : moodHistory;
+
+        // Use Demo Data
         if (USE_DEMO_DATA) {
             console.log("MoodTracker: Using DEMO data.");
             setMoodHistory(demoMoodHistory);
@@ -324,123 +417,131 @@ const MoodTrackerScreen = ({ navigation }) => {
             setLoading(false);
             setLoadingActivities(false);
             setError(null);
-            // Fetch insight based on demo data if available
-            if (demoMoodHistory.length > 0) {
+            if (demoMoodHistory.length > 0 && !insightFetched) { // Fetch only if not already fetched
                 fetchAiInsight(demoMoodHistory);
-            } else {
+            } else if (demoMoodHistory.length === 0) {
                 setAiInsight("Using demo data. No mood entries to analyze.");
-                setInsightFetched(true);
+                setInsightFetched(true); // Mark as fetched (or attempted)
             }
-            // Cleanup function for demo mode (optional)
-            return () => { console.log("Cleanup: Demo mode.")};
+            return () => { console.log("Cleanup: Demo mode.") };
         }
 
-        // --- Option 2: Use Firestore Data ---
+        // Use Firestore Data
         if (!user) {
             console.log("MoodTracker: No user logged in. Cannot fetch Firestore data.");
             setLoading(false);
             setLoadingActivities(false);
             setError("Please log in to see your mood history.");
-            setMoodHistory([]); // Ensure history is empty
+            setMoodHistory([]);
             setActivityHistory([]);
-            // Cleanup function for no user
-            return () => { console.log("Cleanup: No user.")};
+            setAiInsight(''); // Clear insight if no user
+            setInsightError(null);
+            setInsightFetched(false); // Reset fetch status on logout
+            return () => { console.log("Cleanup: No user.") };
         }
 
         console.log("MoodTracker: Setting up Firestore listeners for user:", user.uid);
-        let isMounted = true; // Flag to prevent state updates on unmounted component
+        let isMounted = true;
+        let initialFetchDone = false; // Flag to fetch insight only once on initial load
 
-        // --- Firestore Listener for Mood History ---
+        // Firestore Listener for Mood History
         const unsubscribeMood = firestore()
             .collection('users')
             .doc(user.uid)
             .collection('moodHistory')
-            .orderBy('timestamp', 'desc') // Get latest entries first
+            .orderBy('timestamp', 'desc')
             .onSnapshot(querySnapshot => {
-                if (!isMounted) return; // Don't update if component unmounted
-                console.log("MoodTracker: Mood data received from Firestore snapshot.");
+                if (!isMounted) return;
+                console.log("[DEBUG] MoodTracker: Firestore snapshot received.");
                 const history = [];
                 querySnapshot.forEach(doc => {
                     const data = doc.data();
-                    // Ensure timestamp is valid and convert Firestore Timestamp to JS Date
                     if (data.timestamp && typeof data.timestamp.toDate === 'function') {
                         history.push({
-                            id: doc.id, // Add document ID
+                            id: doc.id,
                             ...data,
-                            timestamp: data.timestamp.toDate() // Convert to Date object
+                            timestamp: data.timestamp.toDate()
                         });
                     } else {
                         console.warn("Invalid or missing timestamp in mood document:", doc.id, data);
                     }
                 });
-                console.log(`MoodTracker: Processed ${history.length} mood entries.`);
-                setMoodHistory(history); // Update state with fetched data
-                setLoading(false); // Stop mood loading indicator
-                setError(null); // Clear any previous error
-                setInsightFetched(false); // Reset insight status, will refetch below
+                console.log(`[DEBUG] MoodTracker: Processed ${history.length} mood entries. Setting state...`);
 
-                // Fetch AI insight only after mood history is updated and non-empty
-                if (history.length > 0) {
+                // Check if history actually changed before triggering insight fetch
+                // NOTE: This shallow comparison might not be sufficient for deep changes.
+                // For simplicity, we'll fetch if it's the first load or if history length changes.
+                // A more robust check would involve comparing IDs or timestamps.
+                const historyChanged = !initialFetchDone || history.length !== moodHistory.length;
+
+                setMoodHistory(history); // Update state
+                console.log(`[DEBUG] MoodTracker: State update complete. Loading: false.`);
+                setLoading(false); // Mood data loaded
+                setError(null);
+
+                // Fetch AI insight only on initial load with data or if data meaningfully changes
+                // Avoid fetching on every minor snapshot update if data hasn't really changed.
+                if (history.length > 0 && historyChanged) {
+                    console.log("[DEBUG] History changed or initial load with data, fetching AI insight.");
                     fetchAiInsight(history);
-                } else {
+                } else if (history.length === 0) {
                     setAiInsight("Track your mood to get personalized insights!");
-                    setInsightFetched(true); // Mark as fetched (no data to fetch from)
+                    setInsightFetched(true); // Mark as attempted even if no data
                 }
+                initialFetchDone = true; // Mark initial processing done
+
             }, err => {
                 if (!isMounted) return;
                 console.error("Firestore mood listener error:", err);
                 setError("Failed to load mood history. Please check connection.");
                 setLoading(false);
-                setLoadingActivities(false); // Also stop activity loading on mood error
-                setMoodHistory([]); // Clear potentially stale data
+                setLoadingActivities(false); // Ensure all loading stops on error
+                setMoodHistory([]);
+                setActivityHistory([]); // Clear activity history too
+                setAiInsight(''); // Clear insight on error
+                setInsightError("Failed to load data for insights.");
+                setInsightFetched(true); // Mark as attempted
             });
 
-        // --- Placeholder for Firestore Listener/Fetch for Activity History ---
-        // TODO: Replace this with your actual Firestore query for activities
+        // Placeholder for Activity History Fetch (runs once)
         const fetchActivities = async () => {
-             if (!isMounted) return;
-             console.log("Fetching activities (placeholder - replace with Firestore query)...");
-             setLoadingActivities(true);
-             try {
-                 // *** SIMULATED DELAY - REPLACE WITH ACTUAL FIRESTORE QUERY ***
-                 // Example: const activitySnapshot = await firestore()...get();
-                 // const activities = activitySnapshot.docs.map(...)
-                 await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-                 if (isMounted) {
-                     setActivityHistory([]); // Set fetched activities here
-                     console.log("Placeholder activities 'fetched'.");
-                 }
-             } catch (err) {
-                 console.error("Activity fetch error:", err);
-                 if (isMounted) {
-                    // Set error, potentially preserving existing mood error
+            if (!isMounted) return;
+            console.log("Fetching activities (placeholder)...");
+            setLoadingActivities(true);
+            try {
+                await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
+                if (isMounted) {
+                    setActivityHistory([]); // Replace with actual Firestore fetch if needed
+                    console.log("Placeholder activities 'fetched'.");
+                }
+            } catch (err) {
+                console.error("Activity fetch error:", err);
+                if (isMounted) {
                     setError(prevError => prevError || "Failed to load activity history.");
-                 }
-             } finally {
-                 if (isMounted) {
-                    setLoadingActivities(false); // Stop activity loading indicator
-                 }
-             }
-         };
-         fetchActivities(); // Call the activity fetch function
+                }
+            } finally {
+                if (isMounted) {
+                    setLoadingActivities(false);
+                }
+            }
+        };
+        fetchActivities();
 
-        // --- Cleanup Function ---
-        // This runs when the component unmounts or dependencies change
+        // Cleanup Function
         return () => {
             console.log("Cleanup: Unsubscribing Firestore listeners.");
-            isMounted = false; // Prevent state updates after unmount
-            unsubscribeMood(); // Detach the mood listener
-            // Add unsubscribe for activity listener here if you implement one
+            isMounted = false;
+            unsubscribeMood();
         };
-
-    // Dependencies: Re-run effect if user logs in/out or if DEMO flag changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user, USE_DEMO_DATA]); // fetchAiInsight is stable due to useCallback
+        // The main effect should only depend on user and USE_DEMO_DATA.
+        // fetchAiInsight has a stable reference now due to useCallback([]).
+        // moodHistory updates trigger the listener, which *conditionally* calls fetchAiInsight.
+    }, [user, USE_DEMO_DATA, fetchAiInsight]); // Removed moodHistory, added fetchAiInsight (now stable)
 
 
     // --- Reminder Functions ---
 
-    // Request permission for notifications (iOS and Android >= 33)
+    // Request permission
     const requestNotificationPermission = useCallback(async () => {
         let hasPermission = false;
         try {
@@ -450,13 +551,11 @@ const MoodTrackerScreen = ({ navigation }) => {
                 hasPermission = settings.authorizationStatus >= AuthorizationStatus.AUTHORIZED;
                 console.log("iOS Permission Status:", settings.authorizationStatus);
             } else if (Platform.OS === 'android') {
-                // Android 13 (API 33) and above requires explicit permission
-                if (Platform.Version >= 33) {
-                    const settings = await notifee.requestPermission(); // Requests POST_NOTIFICATIONS
+                if (Platform.Version >= 33) { // Android 13+ requires explicit permission
+                    const settings = await notifee.requestPermission();
                     hasPermission = settings.authorizationStatus >= AuthorizationStatus.AUTHORIZED;
-                     console.log("Android 13+ Permission Status:", settings.authorizationStatus);
-                } else {
-                    // Below Android 13, permission is granted by default (implicitly)
+                    console.log("Android 13+ Permission Status:", settings.authorizationStatus);
+                } else { // Below Android 13, permission is granted by default at install time
                     hasPermission = true;
                     console.log("Android < 13: Permission assumed.");
                 }
@@ -475,101 +574,94 @@ const MoodTrackerScreen = ({ navigation }) => {
         return hasPermission;
     }, []);
 
-    // Calculate the timestamp for the *next* occurrence of the selected time
+    // Calculate next timestamp
     const calculateNextTimestamp = useCallback((selectedTime) => {
         const now = new Date();
-        const targetTime = new Date(); // Start with today
-        targetTime.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0); // Set to selected H:M
+        const targetTime = new Date();
+        targetTime.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
 
-        // If the target time is in the past for today, schedule it for tomorrow
         if (targetTime.getTime() <= now.getTime()) {
+            // If the time has passed for today, schedule for tomorrow
             targetTime.setDate(targetTime.getDate() + 1);
             console.log("Reminder time is past for today, scheduling for tomorrow:", targetTime);
         } else {
              console.log("Scheduling reminder for today:", targetTime);
         }
-        return targetTime.getTime(); // Return timestamp in milliseconds
+        return targetTime.getTime();
     }, []);
 
-    // Format Date object to a readable time string (e.g., "9:00 AM")
-    const formatTime = useCallback((date) => {
-        if (!(date instanceof Date) || isNaN(date)) return "Invalid Time";
-        return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-    }, []);
-
-    // Handle setting or updating the daily reminder
+    // Set reminder
     const handleSetReminder = useCallback(async () => {
         console.log("Attempting to set/update reminder...");
         setReminderLoading(true);
 
-        // 1. Request Permission
         const hasPermission = await requestNotificationPermission();
         if (!hasPermission) {
             console.log("Permission denied, cannot set reminder.");
             setReminderLoading(false);
-            return; // Stop if permission not granted
+            return;
         }
 
         try {
-            // 2. Cancel existing reminder if one exists
+            // Cancel existing reminder first if one exists
             if (scheduledReminderId) {
                 console.log("Cancelling existing reminder:", scheduledReminderId);
                 await notifee.cancelNotification(scheduledReminderId).catch(e => {
-                    // Log warning but continue, maybe ID was stale
+                    // Warn but continue if cancellation fails (might be an old/invalid ID)
                     console.warn("Failed to cancel potentially old notification:", scheduledReminderId, e);
                 });
             }
 
-            // 3. Create Notification Channel (Android - safe to call multiple times)
+            // Create/Ensure notification channel exists (required for Android 8+)
             const channelId = await notifee.createChannel({
                 id: 'mood-reminders',
                 name: 'Daily Mood Reminders',
-                importance: AndroidImportance.DEFAULT, // Or HIGH if needed
+                importance: AndroidImportance.DEFAULT, // Adjust importance if needed
                 sound: 'default',
             });
             console.log("Notification channel created/ensured:", channelId);
 
-            // 4. Calculate Trigger Timestamp
+            // Calculate trigger timestamp
             const triggerTimestamp = calculateNextTimestamp(reminderTime);
-
-            // 5. Define Trigger (Timestamp type, repeats daily)
             const trigger = {
                 type: TriggerType.TIMESTAMP,
                 timestamp: triggerTimestamp,
-                repeatFrequency: RepeatFrequency.DAILY, // Repeat every day
+                repeatFrequency: RepeatFrequency.DAILY, // Repeat daily at the same time
+                // alarmManager: { // More precise timing but needs SCHEDULE_EXACT_ALARM permission on Android 12+
+                //    allowWhileIdle: true,
+                // },
             };
             console.log("Calculated trigger timestamp:", triggerTimestamp, new Date(triggerTimestamp));
 
-            // 6. Define Notification Details
+            // Define the notification details
             const notificationDetails = {
-                // Use a consistent ID to allow cancellation/updates
-                id: 'daily-mood-reminder-' + user?.uid, // User-specific ID is good practice
+                // Use a consistent ID, possibly user-specific if needed
+                id: 'daily-mood-reminder-' + (user?.uid || 'default'),
                 title: 'Mood Check-in! ✨',
                 body: `Time to log how you're feeling today. (${formatTime(reminderTime)})`,
                 android: {
-                    channelId: channelId, // Use the created channel ID
-                    pressAction: { id: 'default' }, // Action when notification is pressed
-                    importance: AndroidImportance.DEFAULT, // Match channel importance
-                    // smallIcon: 'ic_launcher', // Optional: specify custom small icon
-                    // color: colors.primary, // Optional: notification accent color
+                    channelId: channelId,
+                    pressAction: { id: 'default' }, // Opens the app on press
+                    importance: AndroidImportance.DEFAULT,
+                    // smallIcon: 'ic_notification', // Optional: specify custom small icon name (in android/app/src/main/res/drawable)
                 },
                 ios: {
-                    sound: 'default', // Default notification sound on iOS
-                    // You can add badge count, category identifiers etc. here
+                    sound: 'default',
+                    // Specify category for actions if needed later
                 }
             };
 
-            // 7. Schedule the Notification with the Trigger
+            // Schedule the notification
             console.log("Creating trigger notification...");
             const newReminderId = await notifee.createTriggerNotification(notificationDetails, trigger);
             console.log("Successfully created trigger notification with ID:", newReminderId);
 
-            // 8. Store Reminder Info in AsyncStorage
+            // Store reminder info persistently
             const timeString = `${reminderTime.getHours()}:${String(reminderTime.getMinutes()).padStart(2, '0')}`;
             await AsyncStorage.setItem(REMINDER_TIME_KEY, timeString);
-            await AsyncStorage.setItem(REMINDER_ID_KEY, newReminderId); // Store the new ID
+            await AsyncStorage.setItem(REMINDER_ID_KEY, newReminderId);
 
-            // 9. Update State
+            // Update State
             setScheduledReminderId(newReminderId);
             setIsReminderSet(true);
 
@@ -578,18 +670,18 @@ const MoodTrackerScreen = ({ navigation }) => {
         } catch (error) {
             console.error('Error setting reminder:', error);
             Alert.alert("Reminder Error", "Could not schedule the reminder. Please try again.");
-            // Clean up potentially inconsistent state if error occurred after cancellation attempt
+             // Clean up state and storage on error if a previous ID existed
             if (scheduledReminderId) {
                 await AsyncStorage.removeItem(REMINDER_ID_KEY);
                 setScheduledReminderId(null);
                 setIsReminderSet(false);
             }
         } finally {
-            setReminderLoading(false); // Stop loading indicator
+            setReminderLoading(false);
         }
-    }, [reminderTime, scheduledReminderId, requestNotificationPermission, calculateNextTimestamp, formatTime, user]); // Include user in dependencies
+    }, [reminderTime, scheduledReminderId, requestNotificationPermission, calculateNextTimestamp, formatTime, user]);
 
-    // Handle cancelling the active reminder
+    // Cancel reminder
     const handleCancelReminder = useCallback(async () => {
         console.log("Attempting to cancel reminder...");
         setReminderLoading(true);
@@ -602,7 +694,7 @@ const MoodTrackerScreen = ({ navigation }) => {
 
                 // Clear stored data
                 await AsyncStorage.removeItem(REMINDER_ID_KEY);
-                await AsyncStorage.removeItem(REMINDER_TIME_KEY); // Also clear the time setting
+                await AsyncStorage.removeItem(REMINDER_TIME_KEY); // Also clear the time
 
                 // Update state
                 setScheduledReminderId(null);
@@ -612,45 +704,45 @@ const MoodTrackerScreen = ({ navigation }) => {
 
             } catch (error) {
                 console.error('Error cancelling reminder:', error);
-                Alert.alert("Cancellation Error", "Could not cancel the reminder. You might need to clear app data or reinstall if issues persist.");
+                // Inform user, maybe the ID was invalid or already cancelled
+                Alert.alert("Cancellation Error", "Could not cancel the reminder. It might have already been removed or an error occurred.");
             } finally {
                 setReminderLoading(false);
             }
         } else {
             console.log("No scheduled reminder ID found to cancel.");
-            // Ensure state and storage are clean even if ID was missing
+             // Ensure state and storage are clean even if no ID was in state
             if(isReminderSet) setIsReminderSet(false);
             await AsyncStorage.removeItem(REMINDER_ID_KEY);
             await AsyncStorage.removeItem(REMINDER_TIME_KEY);
             setReminderLoading(false);
-            // Optionally inform user nothing was set:
-            // Alert.alert("No Reminder Set", "There was no active reminder to cancel.");
+            // Optional: Alert user that no reminder was active
+            // Alert.alert("No Reminder", "There was no active reminder to cancel.");
         }
-    }, [scheduledReminderId, isReminderSet]); // Dependencies
+    }, [scheduledReminderId, isReminderSet]);
 
-    // Callback for when the time is selected in the DateTimePicker
+    // Time picker change handler
     const onTimeChange = useCallback((event, selectedDate) => {
-        // Hide picker immediately on Android after selection/cancel
         if (Platform.OS === 'android') {
-            setShowTimePicker(false);
+            setShowTimePicker(false); // Hide picker after selection/cancellation on Android
         }
-        // Update time only if a date was selected (not cancelled)
-        if (selectedDate) {
+        if (event.type === 'set' && selectedDate) { // Check event type for confirmation
             console.log("Time selected:", selectedDate);
-            setReminderTime(new Date(selectedDate)); // Update state with the new time
-             // On iOS, the picker stays visible until dismissed, so we don't hide it here.
-             // User needs to tap "Done" or outside the picker on iOS.
+            setReminderTime(new Date(selectedDate)); // Update state with the new Date object
+             // For iOS with spinner, user presses "Done" button separately handled below
         } else {
             console.log("Time picker cancelled or dismissed.");
-             // If needed, handle cancellation explicitly (e.g., revert to previous time)
+             // For iOS with spinner, simply closing doesn't confirm, hide if needed
+            // if (Platform.OS === 'ios') {
+            //    setShowTimePicker(false);
+            // }
         }
-    }, []); // No dependencies needed
+    }, []);
 
 
-    // --- Memoized Chart Data Calculation ---
+    // --- Memoized Chart Data Calculation (Using new COLORS) ---
     const chartData = useMemo(() => {
-        console.log(`Recalculating chart data for time range: ${timeRange}, Demo Mode: ${USE_DEMO_DATA}`);
-
+        console.log(`[DEBUG] Recalculating chart data for time range: ${timeRange}, Demo Mode: ${USE_DEMO_DATA}`);
         const currentMoodHistory = USE_DEMO_DATA ? demoMoodHistory : moodHistory;
 
         if (!currentMoodHistory || currentMoodHistory.length === 0) {
@@ -658,234 +750,209 @@ const MoodTrackerScreen = ({ navigation }) => {
             return { lineChartData: null, pieChartData: [] };
         }
 
-        // --- Determine Date Range ---
+        // Determine Date Range
         let startDate;
-        const endDate = new Date(); // End date is always today
-        endDate.setHours(23, 59, 59, 999); // Ensure end of today is included
+        const endDate = new Date();
+        endDate.setHours(23, 59, 59, 999); // End of today
 
         switch (timeRange) {
             case 'Daily':
-                // FIX: Directly create today's date at midnight for startDate
-                startDate = new Date(); // Get current date/time
-                startDate.setHours(0, 0, 0, 0); // Set to beginning of today
+                startDate = new Date();
+                startDate.setHours(0, 0, 0, 0); // Start of today
                 break;
             case 'Weekly':
-                startDate = getDateNDaysAgo(6); // Last 7 days
+                startDate = getDateNDaysAgo(6); // Today + 6 previous days
                 break;
             case 'Monthly':
             default:
-                startDate = getDateNDaysAgo(29); // Last 30 days
+                startDate = getDateNDaysAgo(29); // Today + 29 previous days (30 days total)
                 break;
         }
-        // Log the calculated start date for verification
         console.log(`Chart Data: Filtering history between ${formatDateISO(startDate)} and ${formatDateISO(endDate)} (Range: ${timeRange})`);
 
-
-        // --- Filter History ---
+        // Filter History for the selected time range
         const filteredHistory = currentMoodHistory.filter(item =>
             item.timestamp instanceof Date &&
             item.timestamp >= startDate &&
             item.timestamp <= endDate
         );
-        console.log(`Chart Data: Found ${filteredHistory.length} entries in the selected range.`);
+        console.log(`[DEBUG] Chart Data: Found ${filteredHistory.length} entries in the selected range (${timeRange}).`);
 
-        // --- Calculate Daily Averages ---
-        const dailyAverages = {};
-        filteredHistory.forEach(item => {
-            const dateStr = formatDateISO(item.timestamp);
-            const moodValue = getMoodValue(item.mood);
+        // Initialize chart data variables
+        let lineChartData = null;
+        let pieChartData = [];
 
-            if (!dailyAverages[dateStr]) {
-                dailyAverages[dateStr] = { totalValue: 0, count: 0 };
-            }
-            dailyAverages[dateStr].totalValue += moodValue;
-            dailyAverages[dateStr].count += 1;
-        });
-        console.log("Chart Data: Calculated daily sums/counts:", dailyAverages);
-
-        // --- Generate Labels and Data Points ---
-        const labels = [];
-        const dataPoints = [];
-        const tempDate = new Date(startDate); // Start iteration from the calculated start date
-        const rangeEndDate = new Date(endDate);
-        let loopDayIndex = 0;
-        // Calculate total days only needed for Monthly label logic
-        const totalDaysInRange = timeRange === 'Monthly' ? Math.round((rangeEndDate - startDate) / (1000 * 60 * 60 * 24)) + 1 : 0;
-
-        while (tempDate <= rangeEndDate) {
-            const dateStr = formatDateISO(tempDate); // Use local timezone formatting
-            const dayData = dailyAverages[dateStr];
-            let label = '';
-            const avgValue = dayData ? parseFloat((dayData.totalValue / dayData.count).toFixed(1)) : 0;
-
+        // Calculate Line Chart Data
+        if (filteredHistory.length > 0) {
             if (timeRange === 'Daily') {
-                // For Daily view, we only process the startDate
-                const todayISO = formatDateISO(new Date());
-                const tempDateISO = formatDateISO(tempDate);
-                 console.log(`[Daily Chart Check] Comparing tempDate=${tempDateISO} with today=${todayISO}`);
-                if (tempDateISO === todayISO) {
-                    labels.push("Today");
-                    dataPoints.push(avgValue);
-                     console.log(`[Daily Chart Check] Added 'Today' with value: ${avgValue}`);
+                // Refined 'Daily' Line Chart Logic: Show individual entries sorted by time
+                const dailyEntries = filteredHistory.sort((a, b) => a.timestamp - b.timestamp); // Already filtered for today
+                console.log(`[DEBUG] Daily Chart: Found ${dailyEntries.length} entries for today.`);
+
+                if (dailyEntries.length > 0) {
+                    let labels = [];
+                    let dataPoints = [];
+                    if (dailyEntries.length === 1) {
+                        // Show the single point clearly
+                        labels = ['Start', formatTime(dailyEntries[0].timestamp), 'End']; // Pad labels
+                        dataPoints = [0, getMoodValue(dailyEntries[0].mood), 0]; // Pad data
+                        console.log(`[DEBUG] Daily Chart: Single entry logic. Labels: ${JSON.stringify(labels)}, Data: ${JSON.stringify(dataPoints)}`);
+                    } else {
+                        // Show multiple entries by time
+                        labels = dailyEntries.map(entry => formatTime(entry.timestamp));
+                        dataPoints = dailyEntries.map(entry => getMoodValue(entry.mood));
+                        console.log(`[DEBUG] Daily Chart: Multiple entries logic. Labels: ${JSON.stringify(labels)}, Data: ${JSON.stringify(dataPoints)}`);
+                    }
+                     // Use primary color for the line
+                    lineChartData = { labels, datasets: [{ data: dataPoints, color: (opacity = 1) => COLORS.primary, strokeWidth: 2 }] };
                 } else {
-                     console.warn(`[Daily Chart Check] Mismatch: tempDate ${tempDateISO} is not today ${todayISO}. This shouldn't happen with the fixed startDate.`);
-                     // As a fallback, still add the data point if it exists, but label might be wrong
-                     if (dayData) {
-                         labels.push(tempDateISO); // Use ISO date as label if mismatch occurs
-                         dataPoints.push(avgValue);
-                     }
+                    console.log(`[DEBUG] Daily Chart: No entries found for today. lineChartData will be null.`);
+                    lineChartData = null; // Explicitly set to null
                 }
-                break; // Exit loop after processing the single day for 'Daily' view
-            }
-            else if (timeRange === 'Weekly') {
-                label = tempDate.toLocaleDateString('en-US', { weekday: 'short' });
-                labels.push(label);
-                dataPoints.push(avgValue);
-            }
-            else { // Monthly
-                const labelInterval = Math.max(1, Math.floor(totalDaysInRange / 6));
-                if (loopDayIndex === 0 || loopDayIndex === (totalDaysInRange - 1) || loopDayIndex % labelInterval === 0) {
-                    label = tempDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
-                }
-                labels.push(label);
-                dataPoints.push(avgValue);
-            }
 
-            tempDate.setDate(tempDate.getDate() + 1);
-            loopDayIndex++;
+            } else { // Weekly or Monthly - Calculate Daily Averages
+                const dailyAverages = {};
+                filteredHistory.forEach(item => {
+                    const dateStr = formatDateISO(item.timestamp);
+                    const moodValue = getMoodValue(item.mood);
+                    if (!dailyAverages[dateStr]) { dailyAverages[dateStr] = { totalValue: 0, count: 0 }; }
+                    dailyAverages[dateStr].totalValue += moodValue;
+                    dailyAverages[dateStr].count += 1;
+                });
+
+                const labels = [];
+                const dataPoints = [];
+                const tempDate = new Date(startDate);
+                const rangeEndDate = new Date(endDate); // Use current end date
+                let loopDayIndex = 0;
+                // Determine number of days for loops based on range
+                const daysInLoop = timeRange === 'Weekly' ? 7 : 30;
+
+                while (tempDate <= rangeEndDate && loopDayIndex < daysInLoop) {
+                    const dateStr = formatDateISO(tempDate);
+                    const dayData = dailyAverages[dateStr];
+                    let label = '';
+                    // Use average value, default to 0 if no data for the day
+                    const avgValue = dayData ? parseFloat((dayData.totalValue / dayData.count).toFixed(1)) : 0;
+
+                    // Generate labels based on time range
+                    if (timeRange === 'Weekly') {
+                        label = tempDate.toLocaleDateString('en-US', { weekday: 'short' }); // e.g., 'Mon'
+                        labels.push(label);
+                        dataPoints.push(avgValue);
+                    } else { // Monthly
+                         // Calculate total days dynamically for Monthly labeling interval
+                         const totalDaysInRange = Math.round((rangeEndDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+                        // Show fewer labels for Monthly view (e.g., every 5 days + start/end)
+                        const labelInterval = Math.max(1, Math.floor(totalDaysInRange / 6)); // Aim for ~7 labels
+                        if (loopDayIndex === 0 || (loopDayIndex === daysInLoop - 1) || loopDayIndex % labelInterval === 0) {
+                             label = tempDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }); // e.g., '4/19'
+                        } else {
+                            label = ''; // Empty label for intermediate points
+                        }
+                        labels.push(label);
+                        dataPoints.push(avgValue);
+                    }
+                    tempDate.setDate(tempDate.getDate() + 1);
+                    loopDayIndex++;
+                }
+
+                if (labels.length > 0) {
+                    lineChartData = { labels, datasets: [{ data: dataPoints, color: (opacity = 1) => COLORS.primary, strokeWidth: 2 }] };
+                } else { lineChartData = null; }
+                console.log(`[DEBUG] ${timeRange} Chart: Labels: ${labels.length}, DataPoints: ${dataPoints.length}`);
+            }
+        } else {
+             console.log(`[DEBUG] ${timeRange} Chart: No entries found in the filtered range. lineChartData will be null.`);
+             lineChartData = null; // No data in range
         }
 
-        // --- Finalize Line Chart Data ---
-        const finalLabels = labels.length > 0 ? labels : ['No Data'];
-        let finalData = dataPoints.length > 0 ? dataPoints : [0];
 
-        // Add 'Start' point only if we have exactly one valid data point (typical for Daily view)
-        if (finalLabels.length === 1 && finalLabels[0] !== 'No Data') {
-             console.log(`[Chart Finalize] Adding 'Start' point for single data point view (likely Daily). Labels: ${JSON.stringify(finalLabels)}, Data: ${JSON.stringify(finalData)}`);
-            finalLabels.unshift('Start');
-            finalData.unshift(0);
-        }
-
-        const lineChartData = finalLabels[0] !== 'No Data' ? {
-            labels: finalLabels,
-            datasets: [{
-                data: finalData,
-                color: (opacity = 1) => colors.primary,
-                strokeWidth: 2
-            }],
-            legend: [`Mood Trend (${timeRange})`]
-        } : null;
-
-        console.log(`[chartData] Final Line Chart Labels (${timeRange}):`, lineChartData ? lineChartData.labels : 'None');
-        console.log(`[chartData] Final Line Chart Data Points (${timeRange}):`, lineChartData ? lineChartData.datasets[0].data : 'None');
-
-        // --- Calculate Pie Chart Data ---
-        const currentMoodHistoryForPie = USE_DEMO_DATA ? demoMoodHistory : moodHistory;
-        const moodCountsAllTime = currentMoodHistoryForPie.reduce((acc, item) => {
-            if (item.mood) {
-                acc[item.mood] = (acc[item.mood] || 0) + 1;
-            }
+        // Calculate Pie Chart Data (Using filteredHistory for the current time range)
+        const moodCountsFiltered = filteredHistory.reduce((acc, item) => {
+            if (item.mood) { acc[item.mood] = (acc[item.mood] || 0) + 1; }
             return acc;
         }, {});
-
-        const pieChartData = Object.entries(moodCountsAllTime)
+        pieChartData = Object.entries(moodCountsFiltered)
             .map(([mood, count]) => ({
                 name: mood,
                 population: count,
-                color: getMoodColor(mood),
-                legendFontColor: colors.textDark,
+                color: getMoodColor(mood), // Use updated getMoodColor
+                legendFontColor: COLORS.text, // Use main text color for legend
                 legendFontSize: 13
             }))
-            .sort((a, b) => b.population - a.population);
+            .sort((a, b) => b.population - a.population); // Sort slices by count desc
+        console.log(`[DEBUG] Final Pie Chart Data (${timeRange}):`, pieChartData.length > 0 ? `${pieChartData.length} slices` : 'No data in range');
 
-        console.log("[chartData] Final Pie Chart Data:", pieChartData);
-
+        console.log(`[DEBUG] chartData useMemo finished. lineChartData: ${lineChartData ? 'Exists' : 'null'}, pieChartData items: ${pieChartData.length}`);
         return { lineChartData, pieChartData };
 
-    }, [moodHistory, timeRange, USE_DEMO_DATA, demoMoodHistory]);
+    }, [moodHistory, timeRange, USE_DEMO_DATA, demoMoodHistory, formatTime]); // formatTime is now dependency
 
 
-    // --- Memoized Marked Dates for Calendar ---
+    // --- Memoized Marked Dates for Calendar (Using new COLORS) ---
     const markedDates = useMemo(() => {
         console.log("Recalculating marked dates for calendar...");
         const currentMoodHistory = USE_DEMO_DATA ? demoMoodHistory : moodHistory;
-        const markings = {}; // Store { 'YYYY-MM-DD': { dotColor: '...', marked: true, moodLabel: '...' } }
-
+        const markings = {};
         currentMoodHistory.forEach(item => {
-            // Ensure timestamp is a valid Date object
             if (!(item.timestamp instanceof Date) || isNaN(item.timestamp)) return;
-
             const dateString = formatDateISO(item.timestamp);
             const existingMarking = markings[dateString];
-            const newColor = getMoodColor(item.mood);
+            const newColor = getMoodColor(item.mood); // Use updated function
             const newMoodValue = getMoodValue(item.mood);
 
-            // Logic to decide the dot color for the day:
-            // - If no entry exists for the day yet, add this one.
-            // - If an entry exists, prioritize showing the color of the 'highest' mood logged that day.
-            // - If the existing dot is neutral grey (default/unknown), replace it.
-            if (!existingMarking ||
-                (existingMarking.moodValue !== undefined && newMoodValue > existingMarking.moodValue) ||
-                existingMarking.dotColor === colors.neutralGrey)
-            {
+            // Logic to determine the dot color for the day:
+            // Use the color of the mood with the highest value logged on that day.
+            if (!existingMarking || (existingMarking.moodValue !== undefined && newMoodValue > existingMarking.moodValue)) {
                 markings[dateString] = {
                     dotColor: newColor,
-                    marked: true, // Required by react-native-calendars for the dot to show
-                    moodLabel: item.mood, // Store the mood label associated with the displayed dot
-                    moodValue: newMoodValue // Store mood value for comparison
+                    marked: true,
+                    moodValue: newMoodValue // Store highest mood value found so far for comparison
                 };
             }
-            // If multiple entries exist on the same day, the dot will reflect the highest mood value logged.
         });
         console.log(`Marked dates calculated: ${Object.keys(markings).length} days marked.`);
         return markings;
-    }, [moodHistory, USE_DEMO_DATA, demoMoodHistory]); // Dependencies
+    }, [moodHistory, USE_DEMO_DATA, demoMoodHistory]);
 
 
-    // --- Memoized Timeline Data (Last 7 Days) ---
+    // --- Memoized Timeline Data (Recent Days with Data) (Using new COLORS) ---
     const timelineData = useMemo(() => {
         console.log("Recalculating timeline data...");
-        // Select data source based on flag
         const currentMoodHistory = USE_DEMO_DATA ? demoMoodHistory : moodHistory;
         const currentActivityHistory = USE_DEMO_DATA ? demoActivityHistory : activityHistory;
 
-        // Combine mood and activity history
-        const combinedHistory = [
-            ...currentMoodHistory,
-            ...currentActivityHistory
-        ]
-        .filter(item => item.timestamp instanceof Date && !isNaN(item.timestamp)) // Ensure valid timestamps
-        .sort((a, b) => a.timestamp - b.timestamp); // Sort chronologically (oldest first)
+        // Combine and sort all entries by timestamp
+        const combinedHistory = [...currentMoodHistory, ...currentActivityHistory]
+            .filter(item => item.timestamp instanceof Date && !isNaN(item.timestamp))
+            .sort((a, b) => a.timestamp - b.timestamp); // Sort ascending for processing
 
-        // Group entries by date ('YYYY-MM-DD')
-        const days = {}; // Store { 'YYYY-MM-DD': { moods: [], activities: [], predominantMood: '...' } }
+        const days = {}; // Object to hold data grouped by date string 'YYYY-MM-DD'
+
+        // Group entries by day
         combinedHistory.forEach(item => {
             const dateStr = formatDateISO(item.timestamp);
             if (!days[dateStr]) {
-                days[dateStr] = { moods: [], activities: [] }; // Initialize day entry if needed
+                days[dateStr] = { moods: [], activities: [] };
             }
-
-            // Add item to the correct array (moods or activities)
-            if (item.mood) { // Check if it's a mood entry
+            if (item.mood) { // It's a mood entry
                 days[dateStr].moods.push(item);
-            } else if (item.type) { // Check if it's an activity entry (assuming 'type' exists)
+            } else if (item.type) { // It's an activity entry
                 let activityEntry = null;
-                // Map activity types to icons and colors
+                // Map activity types to icons and new COLORS
                 switch (item.type.toLowerCase()) {
                     case 'sleep':
-                        activityEntry = { type: 'Sleep', icon: 'bed-outline', color: colors.sleepColor, data: item };
+                        activityEntry = { type: 'Sleep', icon: 'bed-outline', color: COLORS.sleepColor, data: item };
                         break;
                     case 'exercise':
-                        activityEntry = { type: 'Exercise', icon: 'barbell-outline', color: colors.exerciseColor, data: item };
+                        activityEntry = { type: 'Exercise', icon: 'barbell-outline', color: COLORS.exerciseColor, data: item };
                         break;
                     case 'social':
-                        activityEntry = { type: 'Social', icon: 'people-outline', color: colors.socialColor, data: item };
+                        activityEntry = { type: 'Social', icon: 'people-outline', color: COLORS.socialColor, data: item };
                         break;
-                    // Add more activity types here as needed
                     default:
                         console.warn("Unknown activity type for timeline:", item.type);
-                        // Optionally represent unknown types with a default icon/color
-                        // activityEntry = { type: item.type, icon: 'help-circle-outline', color: colors.neutralGrey, data: item };
                         break;
                 }
                 if (activityEntry) {
@@ -894,126 +961,106 @@ const MoodTrackerScreen = ({ navigation }) => {
             }
         });
 
-        // Process each day: determine predominant mood and deduplicate activities
+        // Process each day: find predominant mood and unique activities
         Object.keys(days).forEach(dateStr => {
-            // Find predominant mood for the day (most frequent, highest value as tie-breaker)
+            // Determine predominant mood for the day (most frequent, tie-break with higher mood value)
             if (days[dateStr].moods.length > 0) {
-                const moodCounts = days[dateStr].moods.reduce((acc, item) => {
-                    acc[item.mood] = (acc[item.mood] || 0) + 1;
-                    return acc;
-                }, {});
-                // Sort moods first by count (desc), then by mood value (desc) as tie-breaker
+                const moodCounts = days[dateStr].moods.reduce((acc, item) => { acc[item.mood] = (acc[item.mood] || 0) + 1; return acc; }, {});
                 days[dateStr].predominantMood = Object.entries(moodCounts)
-                    .sort(([moodA, countA], [moodB, countB]) => {
-                        if (countB !== countA) {
-                            return countB - countA; // Higher count first
-                        }
-                        return getMoodValue(moodB) - getMoodValue(moodA); // Higher mood value first if counts are equal
-                    })[0]?.[0]; // Get the mood name of the top entry
+                    .sort(([mA, cA], [mB, cB]) => {
+                        if (cB !== cA) { return cB - cA; } // Sort by count descending
+                        return getMoodValue(mB) - getMoodValue(mA); // Tie-break by mood value descending
+                    })[0]?.[0]; // Get the mood label of the top entry
             } else {
                 days[dateStr].predominantMood = null; // No mood logged for the day
             }
 
-            // Deduplicate activities shown per day (e.g., show only one 'Exercise' icon even if logged twice)
-            // This keeps the timeline cleaner. Adjust if you want to show all instances.
+            // Filter unique activity types for display (show one icon per type per day)
             days[dateStr].activities = days[dateStr].activities.filter((act, idx, self) =>
-                idx === self.findIndex((a) => (a.type === act.type)) // Keep only the first occurrence of each activity type
+                idx === self.findIndex((a) => (a.type === act.type)) // Keep only the first occurrence of each type
             );
         });
 
-        // Get the dates for which we have data, sorted most recent first
-        const sortedDaysWithData = Object.keys(days).sort((a, b) => new Date(b) - new Date(a));
+        // Get the date strings for the last 7 days that HAVE data
+        const sortedDaysWithData = Object.keys(days).sort((a, b) => new Date(b) - new Date(a)); // Sort dates descending ('YYYY-MM-DD' strings sort correctly)
+        const last7DaysWithData = sortedDaysWithData.slice(0, 7); // Take the most recent 7 date strings with entries
 
-        // Take only the last 7 days that *have data*
-        const last7DaysWithData = sortedDaysWithData.slice(0, 7);
-
-        // Map to the final structure, reversing to show oldest of the 7 days first
-        const finalTimeline = last7DaysWithData
-            .map(dateStr => ({ date: dateStr, ...days[dateStr] }))
-            .reverse(); // Show chronological order (oldest first)
-
+        // Format for rendering, reversing to show oldest first in the timeline view
+        const finalTimeline = last7DaysWithData.map(dateStr => ({ date: dateStr, ...days[dateStr] })).reverse();
         console.log(`Timeline data calculated: ${finalTimeline.length} days shown.`);
         return finalTimeline;
 
-    }, [moodHistory, activityHistory, USE_DEMO_DATA, demoMoodHistory, demoActivityHistory]); // Dependencies
+    }, [moodHistory, activityHistory, USE_DEMO_DATA, demoMoodHistory, demoActivityHistory]);
 
 
     // --- Calendar Day Press Handler ---
     const onDayPress = useCallback((day) => {
         console.log("Calendar day pressed:", day.dateString);
         const currentMoodHistory = USE_DEMO_DATA ? demoMoodHistory : moodHistory;
-        const dateString = day.dateString; // 'YYYY-MM-DD'
+        const dateString = day.dateString;
 
-        // Filter mood entries for the selected date
+        // Filter mood entries for the selected day and sort them by time
         const entriesForDay = currentMoodHistory
             .filter(item => item.timestamp instanceof Date && formatDateISO(item.timestamp) === dateString)
-            .sort((a, b) => a.timestamp - b.timestamp); // Sort entries chronologically for the modal
+            .sort((a, b) => a.timestamp - b.timestamp); // Sort ascending by time
 
-        // If entries exist, prepare data for modal and show it
         if (entriesForDay.length > 0) {
             console.log(`Found ${entriesForDay.length} entries for ${dateString}.`);
-            setSelectedDateData({
-                date: dateString,
-                entries: entriesForDay
-            });
+            setSelectedDateData({ date: dateString, entries: entriesForDay });
             setIsModalVisible(true); // Show the modal
         } else {
             console.log(`No entries found for ${dateString}.`);
-            setSelectedDateData(null); // Clear any previous selection
-            // Optionally, show a brief message that no data exists for this day
-            // Alert.alert("No Data", "No mood entries were logged on this day.");
+            setSelectedDateData(null); // Clear any previous data
+            // Optionally show modal with "No entries" message if a marked day without data is pressed
+            // setIsModalVisible(true);
+            // setSelectedDateData({ date: dateString, entries: [] });
         }
-    }, [moodHistory, USE_DEMO_DATA, demoMoodHistory]); // Dependencies
+    }, [moodHistory, USE_DEMO_DATA, demoMoodHistory, formatTime]); // formatTime added as dependency
 
 
-    // --- Chart Configuration & Calendar Theme (Memoized) ---
-
-    // Configuration object for react-native-chart-kit charts
+    // --- Chart Configuration & Calendar Theme (Memoized, using new COLORS) ---
     const chartConfig = useMemo(() => ({
-        backgroundGradientFrom: colors.cardBackground, // Chart background start color
-        backgroundGradientTo: colors.cardBackground,   // Chart background end color
-        decimalPlaces: 1, // Number of decimal places for Y-axis labels (e.g., 3.5)
-        color: (opacity = 1) => colors.primary, // Default color for lines, bars, dots
-        labelColor: (opacity = 1) => colors.textSecondary, // Color for X and Y axis labels
-        style: {
-            borderRadius: 16 // Apply border radius to the chart container
+        backgroundGradientFrom: COLORS.cardBackground, // Use card background for chart area
+        backgroundGradientTo: COLORS.cardBackground,
+        decimalPlaces: 1, // Show one decimal place for averages
+        color: (opacity = 1) => COLORS.primary, // Primary color for lines/text
+        labelColor: (opacity = 1) => COLORS.textSecondary, // Secondary text for labels
+        style: { borderRadius: 16 }, // Match card radius
+        propsForDots: {
+            r: "4", // Dot radius
+            strokeWidth: "1",
+            stroke: COLORS.primaryLight // Lighter primary for dot stroke
         },
-        propsForDots: { // Style properties for dots on the line chart
-            r: "4", // Radius of the dots
-            strokeWidth: "1", // Border width of the dots
-            stroke: colors.primaryLight // Border color of the dots
+        propsForLabels: {
+            fontSize: 10 // Smaller font size for chart labels
         },
-        propsForLabels: { // Style properties for chart labels
-            fontSize: 10 // Font size for axis labels
+        propsForBackgroundLines: {
+            stroke: COLORS.border, // Use border color for grid lines
+            strokeDasharray: '' // Solid lines
         },
-        propsForBackgroundLines: { // Style properties for background grid lines
-            stroke: colors.lightBorder, // Color of the grid lines
-            strokeDasharray: '' // Make lines solid (no dashes)
-        },
-    }), []); // Empty dependency array - these values don't change
+    }), []);
 
-    // Theme object for react-native-calendars
     const calendarTheme = useMemo(() => ({
-        backgroundColor: colors.cardBackground, // Background of the calendar component itself
-        calendarBackground: colors.cardBackground, // Background of the actual month view area
-        textSectionTitleColor: colors.textSecondary, // Color for day names (Mon, Tue, etc.)
-        selectedDayBackgroundColor: colors.primary, // Background color of a selected day
-        selectedDayTextColor: colors.white, // Text color of a selected day
-        todayTextColor: colors.primary, // Text color of the current day
-        dayTextColor: colors.textDark, // Text color for regular days
-        textDisabledColor: colors.lightBorder, // Text color for days outside the current month
-        dotColor: colors.primary, // Default color for marking dots (overridden by markedDates)
-        selectedDotColor: colors.white, // Color of the dot on a selected day
-        arrowColor: colors.primary, // Color of the month navigation arrows
-        monthTextColor: colors.textDark, // Color of the month/year title
-        indicatorColor: colors.primary, // Color for loading indicator (if applicable)
+        backgroundColor: COLORS.cardBackground, // Calendar container background
+        calendarBackground: COLORS.cardBackground, // Inner calendar background
+        textSectionTitleColor: COLORS.textSecondary, // Color for 'Mon', 'Tue', etc.
+        selectedDayBackgroundColor: COLORS.primary, // Background of selected date
+        selectedDayTextColor: COLORS.white, // Text color of selected date
+        todayTextColor: COLORS.primary, // Color of today's date number
+        dayTextColor: COLORS.text, // Default text color for date numbers
+        textDisabledColor: COLORS.disabled, // Color for dates outside the month
+        dotColor: COLORS.primary, // Default color for marking dots (overridden by markedDates)
+        selectedDotColor: COLORS.white, // Color of the dot on a selected date
+        arrowColor: COLORS.primary, // Color of month navigation arrows
+        monthTextColor: COLORS.text, // Color of the month/year title
+        indicatorColor: COLORS.primary, // Loading indicator color (if applicable)
         textDayFontWeight: '300',
         textMonthFontWeight: 'bold',
         textDayHeaderFontWeight: '300',
         textDayFontSize: 14,
         textMonthFontSize: 16,
         textDayHeaderFontSize: 14,
-        // Custom style for the week row (day names) if needed
+        // Fix for potential layout issue with weekday headers
         'stylesheet.calendar.header': {
             week: {
                 marginTop: 5,
@@ -1021,167 +1068,143 @@ const MoodTrackerScreen = ({ navigation }) => {
                 justifyContent: 'space-around'
             }
         }
-    }), []); // Empty dependency array - these values don't change
+    }), []);
 
 
-    // --- Render Loading/Error/Content ---
+    // --- Render Loading/Error/Content (Using new COLORS) ---
     const renderContent = () => {
-        // Determine overall loading state
         const isLoading = loading || loadingActivities || reminderLoading;
-        // Select current data source
         const currentMoodHistory = USE_DEMO_DATA ? demoMoodHistory : moodHistory;
         const currentActivityHistory = USE_DEMO_DATA ? demoActivityHistory : activityHistory;
 
-        // --- Loading State ---
-        if (isLoading) {
-            return <ActivityIndicator size="large" color={colors.primary} style={styles.loader} />;
-        }
-
-        // --- Error State (only show if not using demo data) ---
-        if (error && !USE_DEMO_DATA) {
-            return <Text style={styles.errorText}>{error}</Text>;
-        }
-
-        // --- Empty State (show if not using demo data and no history exists) ---
+        // Loading State
+        if (isLoading) { return <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />; }
+        // Error State (Only show if not using demo data)
+        if (error && !USE_DEMO_DATA) { return <Text style={styles.errorText}>{error}</Text>; }
+        // Empty State (Only show if not using demo data and no data exists)
         if (currentMoodHistory.length === 0 && currentActivityHistory.length === 0 && !USE_DEMO_DATA && !error) {
-             // Added !error check to avoid showing this when an error message is already present
             return (
                 <View style={styles.emptyStateContainer}>
-                     <Icon name="cloud-offline-outline" size={60} color={colors.textSecondary} />
-                     <Text style={styles.infoText}>No data yet!</Text>
-                     <Text style={styles.infoText}>Start tracking your mood and activities to see your journey unfold here.</Text>
-                     {/* Optional: Add a button to navigate to the tracking screen */}
-                     {/* <TouchableOpacity onPress={() => navigation.navigate('TrackMood')} style={styles.trackButton}>
-                         <Text style={styles.trackButtonText}>Log First Entry</Text>
-                     </TouchableOpacity> */}
+                    <Icon name="cloud-offline-outline" size={60} color={COLORS.textSecondary} />
+                    <Text style={styles.infoText}>No data yet!</Text>
+                    <Text style={styles.infoText}>Start tracking your mood and activities to see your journey unfold here.</Text>
                 </View>
             );
         }
 
-        // --- Content Rendering ---
+        // Content Rendering
         return (
             <>
-                {/* --- Mood Analytics Section --- */}
-                {/* Show analytics only if there's mood data */}
+                {/* Mood Analytics Section */}
                 {currentMoodHistory.length > 0 ? (
                     <View style={styles.sectionCard}>
                         <Text style={styles.sectionTitle}>Mood Analytics</Text>
-                        {/* Time Range Selector (Daily/Weekly/Monthly) */}
+                        {/* Time Range Selector */}
                         <View style={styles.timeRangeSelector}>
                             {['Daily', 'Weekly', 'Monthly'].map(range => (
                                 <TouchableOpacity
                                     key={range}
                                     style={[styles.timeRangeButton, timeRange === range && styles.timeRangeButtonActive]}
-                                    onPress={() => setTimeRange(range)} // Update state on press
-                                >
+                                    onPress={() => setTimeRange(range)} >
                                     <Text style={[styles.timeRangeText, timeRange === range && styles.timeRangeTextActive]}>{range}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
-
-                        {/* Line Chart (Mood Trend) */}
+                        {/* Line Chart */}
                         {chartData?.lineChartData ? (
                             <>
                                 <Text style={styles.chartTitle}>Mood Trend ({timeRange})</Text>
                                 <LineChart
+                                    key={`line-${timeRange}-${JSON.stringify(chartData.lineChartData.datasets[0].data)}`} // Dynamic key for re-render
                                     data={chartData.lineChartData}
-                                    width={screenWidth - 60} // Adjust width based on screen size and padding
+                                    width={chartWidth} // <-- UPDATED: Use calculated responsive width
                                     height={220}
-                                    chartConfig={chartConfig} // Use memoized config
-                                    bezier // Smooth line curves
+                                    chartConfig={chartConfig}
+                                    bezier // Use bezier curves for a smoother look
                                     style={styles.chartStyle}
-                                    fromZero // Ensure Y-axis starts at 0
-                                    yLabelsOffset={5} // Padding for Y-axis labels
+                                    fromZero // Start y-axis at 0
+                                    // yLabelsOffset={5} // <-- REMOVED: Let library handle offset
+                                    // Adjust segments based on data, avoid too many lines
+                                    segments={Math.min(5, chartData.lineChartData.labels.length > 1 ? 4 : 1)}
                                 />
                             </>
                         ) : (
-                            // Message if no data for the selected line chart range
-                            <Text style={styles.infoText}>Not enough data to display a {timeRange.toLowerCase()} trend.</Text>
+                            <Text style={styles.infoText}>No mood data logged for the {timeRange.toLowerCase()} period to display a trend.</Text>
                         )}
-
-                        {/* Pie Chart (Overall Mood Distribution) */}
+                        {/* Pie Chart */}
+                        <Text style={styles.chartTitle}>Mood Distribution ({timeRange})</Text>
                         {chartData?.pieChartData && chartData.pieChartData.length > 0 ? (
-                             <>
-                                <Text style={styles.chartTitle}>Overall Mood Distribution</Text>
-                                <PieChart
-                                    data={chartData.pieChartData}
-                                    width={screenWidth - 60} // Adjust width
-                                    height={200}
-                                    chartConfig={chartConfig} // Use memoized config
-                                    accessor={"population"} // Key in data array holding the value
-                                    backgroundColor={colors.transparent} // Make background transparent
-                                    paddingLeft={"15"} // Adjust padding if needed
-                                    // 'absolute' shows actual values, remove for percentages
-                                    // absolute
-                                    style={styles.chartStyle}
-                                />
-                             </>
+                            <PieChart
+                                key={`pie-${timeRange}-${JSON.stringify(chartData.pieChartData)}`} // Dynamic key
+                                data={chartData.pieChartData}
+                                width={chartWidth} // <-- UPDATED: Use calculated responsive width
+                                height={180}
+                                chartConfig={chartConfig}
+                                accessor={"population"} // Accessor for data value
+                                backgroundColor={COLORS.transparent} // Transparent background
+                                // paddingLeft={"15"} // <-- REMOVED: Let library handle internal padding/legend placement
+                                style={styles.chartStyle}
+                                // center={[10, 0]} // Keep commented out unless specific centering needed
+                                // absolute // Uncomment to show absolute values instead of percentages
+                            />
                         ) : (
-                            // Message if no data for the pie chart
-                            <Text style={styles.infoText}>Log your mood more to see the overall distribution.</Text>
+                            <Text style={styles.infoText}>No mood data logged for the {timeRange.toLowerCase()} period.</Text>
                         )}
                     </View>
-                ) : (
-                    // Card shown if no mood data exists at all
+                ) : ( // Show placeholder if no mood history
                     <View style={styles.sectionCard}>
                         <Text style={styles.sectionTitle}>Mood Analytics</Text>
-                        <Icon name="bar-chart-outline" size={24} color={colors.primary} style={styles.sectionIcon}/>
+                        <Icon name="bar-chart-outline" size={24} color={COLORS.primary} style={styles.sectionIcon} />
                         <Text style={styles.infoText}>Log your mood entries to see analytics and trends here.</Text>
                     </View>
                 )}
 
-                {/* --- AI Insights Section --- */}
+                {/* AI Insights Section */}
                 <View style={styles.sectionCard}>
                     <Text style={styles.sectionTitle}>Insights & Tips (Last 7 Days)</Text>
-                    <Icon name="sparkles-outline" size={24} color={colors.primary} style={styles.sectionIcon}/>
-                    {/* Show loader while fetching */}
+                     {/* Using secondary accent color for icon */}
+                    <Icon name="sparkles-outline" size={24} color={COLORS.secondary} style={styles.sectionIcon} />
                     {isFetchingInsight ? (
-                        <ActivityIndicator size="small" color={colors.primary} style={styles.insightLoader}/>
+                        <ActivityIndicator size="small" color={COLORS.primary} style={styles.insightLoader} />
                     ) : insightError ? (
-                        // Show error message if fetching failed
                         <Text style={styles.insightErrorText}>{insightError}</Text>
                     ) : (
-                        // Show the fetched insight or a default message
                         <Text style={styles.insightText}>{aiInsight || "Insights based on your recent mood logs will appear here."}</Text>
                     )}
-                    {/* Refresh button (only show if not fetching and there's data) */}
+                    {/* Refresh Button - Show only if not loading and there's data */}
                     {!isFetchingInsight && currentMoodHistory.length > 0 && (
                         <TouchableOpacity
                             onPress={() => {
                                 console.log("Manual insight refresh triggered.");
-                                setInsightFetched(false); // Allow refetch
-                                fetchAiInsight(currentMoodHistory); // Fetch insight again
+                                // No need to setInsightFetched(false) here, fetchAiInsight handles its states
+                                fetchAiInsight(currentMoodHistory); // Pass current history
                             }}
                             style={styles.refreshButton}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} // Increase tappable area
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} // Larger tap area
                         >
-                            <Icon name="refresh-outline" size={18} color={colors.primary} />
+                            <Icon name="refresh-outline" size={18} color={COLORS.primary} />
                         </TouchableOpacity>
                     )}
                 </View>
 
-                {/* --- Timeline Section --- */}
+                {/* Timeline Section */}
                 <View style={styles.sectionCard}>
-                    <Text style={styles.sectionTitle}>Timeline (Last 7 Days)</Text>
-                    <Icon name="git-compare-outline" size={24} color={colors.featureGreen} style={styles.sectionIcon}/>
-                    {/* Check if timelineData exists and has entries */}
+                    <Text style={styles.sectionTitle}>Timeline (Recent Days)</Text>
+                    {/* Using accent color for icon */}
+                    <Icon name="git-compare-outline" size={24} color={COLORS.accent} style={styles.sectionIcon} />
                     {timelineData && Array.isArray(timelineData) && timelineData.length > 0 ? (
                         <View style={styles.timelineContainer}>
-                            {/* Map through the timeline days */}
                             {timelineData.map((dayData) => (
                                 <View key={dayData.date} style={styles.timelineItem}>
-                                    {/* Date Label */}
+                                    {/* Format date clearly */}
                                     <Text style={styles.timelineDate}>
-                                        {new Date(dayData.date + 'T00:00:00') // Add time to avoid timezone issues
-                                            .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                        {new Date(dayData.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                                     </Text>
-                                    {/* Mood Dot and Activity Icons */}
                                     <View style={styles.timelineContent}>
-                                        {/* Predominant Mood Dot */}
+                                        {/* Mood Dot representing predominant mood */}
                                         <View style={[
                                             styles.timelineMoodDot,
-                                            // Use mood color or neutral grey if no mood logged
-                                            { backgroundColor: getMoodColor(dayData.predominantMood) }
+                                            { backgroundColor: getMoodColor(dayData.predominantMood) } // Use color from getMoodColor
                                         ]} />
                                         {/* Activity Icons */}
                                         <View style={styles.timelineActivities}>
@@ -1189,10 +1212,10 @@ const MoodTrackerScreen = ({ navigation }) => {
                                                 <TouchableOpacity
                                                     key={index}
                                                     style={styles.activityIconTouchable}
-                                                    // Show details on press (example using Alert)
                                                     onPress={() => Alert.alert(
                                                         activity.type,
-                                                        `${USE_DEMO_DATA ? 'Demo' : 'Logged'} ${activity.type} on ${dayData.date}.${activity.data?.duration ? ` Duration: ${activity.data.duration} hrs.` : ''}`
+                                                        `${USE_DEMO_DATA ? 'Demo' : 'Logged'} ${activity.type} on ${new Date(dayData.date + 'T00:00:00').toLocaleDateString()}.` +
+                                                        (activity.data?.duration ? ` Duration: ${activity.data.duration} hrs.` : '')
                                                     )}
                                                 >
                                                     <Icon name={activity.icon} size={18} color={activity.color} />
@@ -1204,59 +1227,53 @@ const MoodTrackerScreen = ({ navigation }) => {
                                     </View>
                                 </View>
                             ))}
-                            {/* Correlation text at the bottom */}
                             <Text style={styles.correlationText}>See how your activities and mood align over time.</Text>
                         </View>
                     ) : (
-                        // Message if no data for the timeline
                         <Text style={styles.infoText}>Log your moods and activities to build your timeline.</Text>
                     )}
                 </View>
 
-                {/* --- Calendar Section --- */}
-                {/* Show calendar only if there's mood data to mark */}
-                {currentMoodHistory.length > 0 ? (
+                {/* Calendar Section */}
+                {(currentMoodHistory.length > 0 || USE_DEMO_DATA) ? ( // Show calendar even with demo data
                     <View style={styles.sectionCard}>
                         <Text style={styles.sectionTitle}>Mood Calendar</Text>
-                        <Icon name="calendar-outline" size={24} color={colors.featureBlue} style={styles.sectionIcon}/>
+                        {/* Using accent color for icon */}
+                        <Icon name="calendar-outline" size={24} color={COLORS.accent} style={styles.sectionIcon} />
                         <Calendar
-                            // Use a dynamic key based on current date to force re-render if needed
-                            // (though markedDates dependency should handle updates)
+                            // Add key based on current date to ensure it updates if the app is open across midnight
                             key={formatDateISO(new Date())}
-                            current={formatDateISO(new Date())} // Start calendar on current month
-                            onDayPress={onDayPress} // Handle day tap
-                            markedDates={markedDates} // Use memoized markings
-                            markingType={'dot'} // Use dots for marking
+                            current={formatDateISO(new Date())} // Set current month to today
+                            onDayPress={onDayPress}
+                            markedDates={markedDates} // Use calculated marked dates
+                            markingType={'dot'} // Use dot marking
                             monthFormat={'yyyy MMMM'} // Format for month title
-                            theme={calendarTheme} // Use memoized theme
+                            theme={calendarTheme} // Apply custom theme
                             style={styles.calendarStyle}
-                            // Optional: Add min/max date constraints if needed
-                            // minDate={'2023-01-01'}
-                            // maxDate={formatDateISO(new Date())}
+                            // Optional: Add min/max date if needed
+                            // minDate={'2024-01-01'}
+                            // maxDate={'2025-12-31'}
                         />
                         <Text style={styles.infoText}>Tap a day with a dot to see logged entries.</Text>
                     </View>
-                ) : (
-                     // Card shown if no mood data exists for the calendar
-                     <View style={styles.sectionCard}>
+                ) : ( // Show placeholder if no mood history and not using demo data
+                    <View style={styles.sectionCard}>
                         <Text style={styles.sectionTitle}>Mood Calendar</Text>
-                        <Icon name="calendar-outline" size={24} color={colors.featureBlue} style={styles.sectionIcon}/>
+                        <Icon name="calendar-outline" size={24} color={COLORS.accent} style={styles.sectionIcon} />
                         <Text style={styles.infoText}>Log your mood to see entries marked on the calendar.</Text>
                     </View>
                 )}
 
-                {/* --- Progress Section (Simple Stats) --- */}
+                {/* Progress Section */}
                 <View style={styles.sectionCard}>
                     <Text style={styles.sectionTitle}>Tracking Progress</Text>
-                    <Icon name="trending-up-outline" size={24} color={colors.featureGreen} style={styles.sectionIcon}/>
-                    {/* Show mood count if available */}
+                     {/* Using primary color for icon */}
+                    <Icon name="trending-up-outline" size={24} color={COLORS.primary} style={styles.sectionIcon} />
                     <Text style={styles.placeholderText}>
                         {currentMoodHistory.length > 0
                             ? `You've logged your mood ${currentMoodHistory.length} time${currentMoodHistory.length > 1 ? 's' : ''}! Keep it up! ✨`
                             : "Start logging your mood to track progress."}
                     </Text>
-                    {/* Show activity count if available */}
-                    {/* TODO: Update this when activity fetching is implemented */}
                     <Text style={styles.placeholderText}>
                         {currentActivityHistory.length > 0
                             ? `You've logged ${currentActivityHistory.length} activit${currentActivityHistory.length > 1 ? 'ies' : 'y'}.`
@@ -1264,53 +1281,47 @@ const MoodTrackerScreen = ({ navigation }) => {
                     </Text>
                 </View>
 
-                {/* --- Reminders Section --- */}
+                {/* Reminders Section */}
                 <View style={styles.sectionCard}>
                     <Text style={styles.sectionTitle}>Daily Reminder</Text>
-                    <Icon name="alarm-outline" size={24} color={colors.featureBlue} style={styles.sectionIcon}/>
+                    {/* Using primary color for icon */}
+                    <Icon name="alarm-outline" size={24} color={COLORS.primary} style={styles.sectionIcon} />
                     <Text style={styles.reminderInfoText}>Set a time for a daily notification to check in with your mood.</Text>
 
-                    {/* Button to open time picker */}
+                    {/* Time Picker Button */}
                     <TouchableOpacity
                         style={styles.timePickerButton}
-                        onPress={() => setShowTimePicker(true)} // Show picker on press
-                        disabled={reminderLoading} // Disable while loading
+                        onPress={() => setShowTimePicker(true)}
+                        disabled={reminderLoading} // Disable while processing
                     >
                         <Text style={styles.timePickerButtonText}>Selected Time: {formatTime(reminderTime)}</Text>
-                        <Icon name="time-outline" size={18} color={colors.primary} style={{marginLeft: 8}}/>
+                        <Icon name="time-outline" size={18} color={COLORS.primary} style={{ marginLeft: 8 }} />
                     </TouchableOpacity>
 
-                    {/* Time Picker Component (conditionally rendered) */}
+                    {/* Time Picker */}
                     {showTimePicker && (
                         <DateTimePicker
                             testID="dateTimePicker"
                             value={reminderTime} // Current selected time
-                            mode="time" // Show time picker interface
-                            is24Hour={false} // Use AM/PM format
-                            display={Platform.OS === 'ios' ? 'spinner' : 'default'} // iOS style preference
-                            onChange={onTimeChange} // Handle time changes
-                            // Optional: Minimum/Maximum time constraints
-                            // minimumDate={new Date(2000, 0, 1, 5, 0)} // e.g., min 5:00 AM
-                            // maximumDate={new Date(2000, 0, 1, 23, 0)} // e.g., max 11:00 PM
+                            mode="time" // Show time picker
+                            is24Hour={false} // Use AM/PM
+                            display={Platform.OS === 'ios' ? 'spinner' : 'default'} // Spinner for iOS, default for Android
+                            onChange={onTimeChange} // Handler for time change
                         />
                     )}
-                     {/* iOS Specific: Add a "Done" button if picker is visible */}
-                     {showTimePicker && Platform.OS === 'ios' && (
-                        <TouchableOpacity
-                            style={styles.iosPickerDoneButton}
-                            onPress={() => setShowTimePicker(false)}
-                        >
+                    {/* iOS Done Button (for spinner display) */}
+                    {showTimePicker && Platform.OS === 'ios' && (
+                         <TouchableOpacity style={styles.iosPickerDoneButton} onPress={() => setShowTimePicker(false)} >
                             <Text style={styles.iosPickerDoneButtonText}>Done</Text>
-                        </TouchableOpacity>
+                         </TouchableOpacity>
                     )}
 
-
-                    {/* Set/Update and Cancel Buttons */}
+                    {/* Action Buttons */}
                     <View style={styles.reminderButtonsContainer}>
                         <TouchableOpacity
                             style={[styles.reminderActionButton, styles.setButton]}
                             onPress={handleSetReminder}
-                            disabled={reminderLoading} // Disable while loading
+                            disabled={reminderLoading}
                         >
                             <Text style={styles.reminderActionButtonText}>{isReminderSet ? 'Update Time' : 'Set Reminder'}</Text>
                         </TouchableOpacity>
@@ -1319,107 +1330,105 @@ const MoodTrackerScreen = ({ navigation }) => {
                             <TouchableOpacity
                                 style={[styles.reminderActionButton, styles.cancelButton]}
                                 onPress={handleCancelReminder}
-                                disabled={reminderLoading} // Disable while loading
+                                disabled={reminderLoading}
                             >
                                 <Text style={styles.reminderActionButtonText}>Cancel Reminder</Text>
                             </TouchableOpacity>
                         )}
                     </View>
 
-                    {/* Loading indicator for reminder actions */}
-                    {reminderLoading && <ActivityIndicator size="small" color={colors.primary} style={{marginTop: 10}}/>}
+                    {/* Loading Indicator */}
+                    {reminderLoading && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginTop: 10 }} />}
 
-                    {/* Status text showing if reminder is set */}
-                    {isReminderSet && !reminderLoading && (
-                        <Text style={styles.reminderSetText}>Reminder is active for {formatTime(reminderTime)} daily.</Text>
-                    )}
-                     {!isReminderSet && !reminderLoading && (
-                        <Text style={styles.reminderSetText}>Reminder is currently off.</Text>
+                    {/* Status Text */}
+                    {!reminderLoading && ( // Only show status when not loading
+                        <Text style={styles.reminderSetText}>
+                            {isReminderSet ? `Reminder is active for ${formatTime(reminderTime)} daily.` : "Reminder is currently off."}
+                        </Text>
                     )}
                 </View>
             </>
         );
     };
 
+    // Debug Logging Effect (Optional: Can be removed in final production)
+    useEffect(() => {
+        console.log("[DEBUG] State Update: moodHistory length:", moodHistory.length);
+        console.log("[DEBUG] State Update: chartData line:", chartData?.lineChartData ? 'Exists' : 'null', "pie:", chartData?.pieChartData?.length);
+        console.log("[DEBUG] State Update: AI Insight State:", {aiInsight, insightError, isFetchingInsight, insightFetched});
+    }, [moodHistory, chartData, aiInsight, insightError, isFetchingInsight, insightFetched]);
+
 
     // --- Final Render of the Screen ---
     return (
-        // Use LinearGradient for background
-        <LinearGradient colors={[colors.backgroundTop, colors.backgroundBottom]} style={styles.container}>
-            {/* ScrollView to contain all content */}
+        // Use background and cardBackground for a subtle gradient effect
+        <LinearGradient colors={[COLORS.background, COLORS.cardBackground]} style={styles.container}>
             <ScrollView
                 contentContainerStyle={styles.scrollContainer}
                 showsVerticalScrollIndicator={false} // Hide scrollbar
             >
-                {/* Screen Title */}
                 <Text style={styles.screenTitle}>Your Mood Journey</Text>
-
-                {/* Render loading, error, or main content */}
                 {renderContent()}
-
             </ScrollView>
 
-            {/* --- Modal for Calendar Day Details --- */}
+             {/* Calendar Day Details Modal */}
              <Modal
-                 animationType="fade" // How the modal appears
-                 transparent={true} // Allows underlying screen to be partially visible
-                 visible={isModalVisible} // Controlled by state
-                 onRequestClose={() => setIsModalVisible(false)} // Android back button behavior
-             >
-                 {/* Overlay to dim the background */}
-                 <Pressable style={styles.modalOverlay} onPress={() => setIsModalVisible(false)}>
-                     {/* Modal Content Box (use Pressable to prevent closing when tapping inside) */}
-                     <Pressable style={styles.modalContent} onPress={() => { /* Do nothing, prevents closing */ }}>
-                         {/* Modal Title */}
-                         <Text style={styles.modalTitle}>
-                             Entries for {selectedDateData?.date
-                                ? new Date(selectedDateData.date + 'T00:00:00') // Add time part
-                                    .toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                animationType="fade" // Use fade animation
+                transparent={true} // Make modal background transparent
+                visible={isModalVisible} // Control visibility with state
+                onRequestClose={() => setIsModalVisible(false)} // Handle hardware back button on Android
+            >
+                {/* Overlay to allow closing modal by tapping outside */}
+                <Pressable style={styles.modalOverlay} onPress={() => setIsModalVisible(false)}>
+                     {/* Prevent closing when tapping inside the modal content */}
+                    <Pressable style={styles.modalContent} onPress={() => { /* Prevent closing on content press */ }}>
+                        <Text style={styles.modalTitle}>
+                            Entries for {selectedDateData?.date
+                                ? new Date(selectedDateData.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
                                 : 'Selected Day'}
-                         </Text>
-                         {/* Scrollable list for entries */}
-                         <ScrollView style={styles.modalScroll}>
-                             {selectedDateData?.entries.map((entry, index) => (
-                                 <View key={entry.id || index} style={styles.modalEntry}>
-                                     {/* Mood Icon, Name, and Time */}
-                                     <View style={styles.modalMoodHeader}>
-                                         {/* Left side: Dot and Mood */}
-                                         <View style={styles.modalMoodInfo}>
-                                             <View style={[styles.moodDot, { backgroundColor: getMoodColor(entry.mood)}]} />
-                                             <Text style={styles.modalMoodText} numberOfLines={1} ellipsizeMode='tail'>
-                                                 {entry.mood || 'Unknown Mood'}
-                                             </Text>
-                                         </View>
-                                         {/* Right side: Timestamp */}
-                                         <Text style={styles.modalTimestampText}>
-                                             ({entry.timestamp instanceof Date ? formatTime(entry.timestamp) : 'Invalid time'})
-                                         </Text>
-                                     </View>
-                                     {/* Mood Note (if available) */}
-                                     {entry.note ? (
-                                         <Text style={styles.modalNoteText}>{entry.note}</Text>
-                                     ) : (
-                                         <Text style={styles.modalNoteTextMuted}>No note added for this entry.</Text>
-                                     )}
-                                 </View>
-                             ))}
-                              {/* Message if no entries (shouldn't happen if modal logic is correct, but good fallback) */}
-                              {(!selectedDateData || !selectedDateData.entries || selectedDateData.entries.length === 0) && (
-                                  <Text style={styles.modalNoteTextMuted}>No mood entries found for this day.</Text>
-                              )}
-                         </ScrollView>
+                        </Text>
+                        <ScrollView style={styles.modalScroll}>
+                            {selectedDateData?.entries.map((entry, index) => (
+                                <View key={entry.id || index} style={styles.modalEntry}>
+                                    <View style={styles.modalMoodHeader}>
+                                        <View style={styles.modalMoodInfo}>
+                                             {/* Mood color dot */}
+                                            <View style={[styles.moodDot, { backgroundColor: getMoodColor(entry.mood)}]} />
+                                             {/* Mood label */}
+                                            <Text style={styles.modalMoodText} numberOfLines={1} ellipsizeMode='tail'>
+                                                {entry.mood || 'Unknown Mood'}
+                                            </Text>
+                                        </View>
+                                         {/* Timestamp */}
+                                        <Text style={styles.modalTimestampText}>
+                                            ({entry.timestamp instanceof Date ? formatTime(entry.timestamp) : 'Invalid time'})
+                                        </Text>
+                                    </View>
+                                     {/* Optional Note */}
+                                    {entry.note ? (
+                                        <Text style={styles.modalNoteText}>{entry.note}</Text>
+                                    ) : (
+                                        <Text style={styles.modalNoteTextMuted}>No note added for this entry.</Text>
+                                    )}
+                                </View>
+                            ))}
+                             {/* Message if no entries */}
+                            {(!selectedDateData || !selectedDateData.entries || selectedDateData.entries.length === 0) && (
+                                <Text style={styles.modalNoteTextMuted}>No mood entries found for this day.</Text>
+                            )}
+                        </ScrollView>
                          {/* Close Button */}
-                         <TouchableOpacity style={styles.closeButton} onPress={() => setIsModalVisible(false)}>
-                             <Text style={styles.closeButtonText}>Close</Text>
-                         </TouchableOpacity>
-                     </Pressable>
-                 </Pressable>
+                        <TouchableOpacity style={styles.closeButton} onPress={() => setIsModalVisible(false)}>
+                            <Text style={styles.closeButtonText}>Close</Text>
+                        </TouchableOpacity>
+                    </Pressable>
+                </Pressable>
              </Modal>
         </LinearGradient>
     );
 };
 
-// --- Styles ---
+// --- Styles (Using new COLORS object) ---
 const styles = StyleSheet.create({
     container: {
         flex: 1, // Take up full screen
@@ -1431,7 +1440,7 @@ const styles = StyleSheet.create({
     screenTitle: {
         fontSize: 26,
         fontWeight: 'bold',
-        color: colors.textDark,
+        color: COLORS.text, // Use main text color
         marginBottom: 25,
         textAlign: 'center',
     },
@@ -1441,7 +1450,7 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
     },
     errorText: {
-        color: colors.errorRed,
+        color: COLORS.error, // Use error color
         textAlign: 'center',
         marginTop: 30,
         fontSize: 16,
@@ -1455,7 +1464,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 30,
     },
     infoText: {
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text color
         textAlign: 'center',
         marginTop: 15,
         marginBottom: 15,
@@ -1464,34 +1473,35 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
     },
     sectionCard: {
-        backgroundColor: colors.cardBackground,
+        backgroundColor: COLORS.cardBackground, // Use card background color
         borderRadius: 16,
-        padding: 15,
+        padding: 15, // Padding inside the card
         marginBottom: 20,
         // Subtle shadow for depth
         borderWidth: Platform.OS === 'android' ? 0 : 1, // Border for iOS fallback if shadow weak
-        borderColor: colors.lightBorder,
+        borderColor: COLORS.border, // Use border color
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.10,
         shadowRadius: 2.22,
-        elevation: 0, // Android shadow
+        elevation: 3, // Android shadow
     },
     sectionTitle: {
         fontSize: 18,
         fontWeight: '600', // Semi-bold
-        color: colors.textDark,
+        color: COLORS.text, // Use main text color
         marginBottom: 15,
     },
     sectionIcon: {
         position: 'absolute',
         top: 15,
         right: 15,
-        opacity: 0.6, // Make icon slightly subtle
+        opacity: 0.7, // Make icon slightly subtle
+        // Color is set inline where used (COLORS.primary, COLORS.accent, etc.)
     },
     placeholderText: {
         fontSize: 14,
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text color
         lineHeight: 20,
         marginTop: 5,
     },
@@ -1502,7 +1512,7 @@ const styles = StyleSheet.create({
     },
     insightErrorText: {
         fontSize: 14,
-        color: colors.errorRed,
+        color: COLORS.error, // Use error color
         lineHeight: 20,
         fontStyle: 'italic',
         textAlign:'center',
@@ -1510,10 +1520,11 @@ const styles = StyleSheet.create({
     },
     insightText: {
         fontSize: 14,
-        color: colors.textDark,
+        color: COLORS.text, // Use main text color
         lineHeight: 21, // Good spacing for readability
         paddingRight: 30, // Space for refresh icon
         textAlign: 'left', // Align text naturally
+        minHeight: 40, // Ensure space even when text is short
     },
     refreshButton: {
         position: 'absolute',
@@ -1525,20 +1536,25 @@ const styles = StyleSheet.create({
     chartTitle: {
         fontSize: 15,
         fontWeight: '500', // Medium weight
-        color: colors.textDark,
+        color: COLORS.text, // Use main text color
         marginBottom: 5,
-        marginLeft: 5, // Align with chart padding
+        // marginLeft: 5, // Removed to let chart centering work better
+        textAlign: 'left', // Explicitly align left
         marginTop: 10,
+        
     },
     chartStyle: {
         marginVertical: 8,
         borderRadius: 16, // Match card radius
+        // Removed paddingLeft from PieChart props, adjust margin if needed here
+        // marginRight: 10, // Example: Add right margin if legend still feels cramped
+        paddingRight: 10, // Space for legend if needed
     },
     timeRangeSelector: {
         flexDirection: 'row',
         justifyContent: 'space-evenly',
         marginBottom: 15,
-        backgroundColor: colors.backgroundTop, // Subtle background
+        backgroundColor: COLORS.primaryLight, // Use lighter primary
         borderRadius: 20, // Pill shape
         padding: 4,
         alignSelf: 'center', // Center the selector
@@ -1549,15 +1565,15 @@ const styles = StyleSheet.create({
         borderRadius: 16, // Rounded buttons
     },
     timeRangeButtonActive: {
-        backgroundColor: colors.primary, // Highlight active button
+        backgroundColor: COLORS.primary, // Highlight active button with primary color
     },
     timeRangeText: {
         fontSize: 13,
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text
         fontWeight: '500',
     },
     timeRangeTextActive: {
-        color: colors.white, // White text on active button
+        color: COLORS.white, // White text on active button
     },
     // --- Timeline Styles ---
     timelineContainer: {
@@ -1569,13 +1585,13 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         paddingVertical: 8,
         borderBottomWidth: 1,
-        borderBottomColor: colors.lightBorder,
+        borderBottomColor: COLORS.border, // Use border color
     },
     timelineDate: {
         fontSize: 12,
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text
         fontWeight: '500',
-        width: 80, // Fixed width for alignment
+        width: 85, // Adjusted width for potentially longer dates
         textAlign: 'left',
         marginRight: 5,
     },
@@ -1591,7 +1607,8 @@ const styles = StyleSheet.create({
         borderRadius: 6, // Perfect circle
         marginRight: 10,
         borderWidth: 1,
-        borderColor: colors.lightBorder, // Subtle border
+        borderColor: COLORS.border, // Subtle border using border color
+        // Background color set dynamically
     },
     timelineActivities: {
         flexDirection: 'row',
@@ -1602,16 +1619,17 @@ const styles = StyleSheet.create({
     activityIconTouchable: {
         marginLeft: 8, // Spacing between icons
         padding: 2, // Increase touch area slightly
+        // Icon color set dynamically
     },
     noActivityText: {
         fontSize: 14,
-        color: colors.textLight, // Very subtle text
+        color: COLORS.lightText, // Very subtle text using light text color
         marginLeft: 8,
         fontStyle: 'italic',
     },
     correlationText: {
         fontSize: 13,
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text color
         fontStyle: 'italic',
         marginTop: 15,
         textAlign: 'center',
@@ -1620,7 +1638,7 @@ const styles = StyleSheet.create({
     // --- Calendar Styles ---
     calendarStyle: {
         borderWidth: 1,
-        borderColor: colors.lightBorder,
+        borderColor: COLORS.border, // Use border color
         borderRadius: 8,
         // Add padding if needed inside the calendar border
         // paddingBottom: 10,
@@ -1628,38 +1646,38 @@ const styles = StyleSheet.create({
     // --- Reminder Styles ---
     reminderInfoText: {
         fontSize: 14,
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text
         marginBottom: 15,
         lineHeight: 20,
     },
     timePickerButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.backgroundTop, // Subtle background
+        backgroundColor: COLORS.primaryLight, // Use lighter primary
         paddingVertical: 10,
         paddingHorizontal: 15,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: colors.lightBorder,
+        borderColor: COLORS.border, // Use border color
         marginBottom: 20,
         justifyContent: 'space-between', // Push text and icon apart
     },
     timePickerButtonText: {
         fontSize: 15,
-        color: colors.textDark,
+        color: COLORS.text, // Use main text color
     },
      iosPickerDoneButton: {
-        alignSelf: 'flex-end', // Position to the right
-        paddingVertical: 8,
-        paddingHorizontal: 15,
-        marginTop: -10, // Adjust position relative to the picker
-        marginBottom: 10,
-    },
-    iosPickerDoneButtonText: {
-        color: colors.primary, // Use theme color for "Done"
-        fontSize: 16,
-        fontWeight: '600',
-    },
+         alignSelf: 'flex-end', // Position to the right
+         paddingVertical: 8,
+         paddingHorizontal: 15,
+         marginTop: -10, // Adjust position relative to the picker (might need tweaking)
+         marginBottom: 10,
+     },
+     iosPickerDoneButtonText: {
+         color: COLORS.primary, // Use theme color for "Done"
+         fontSize: 16,
+         fontWeight: '600',
+     },
     reminderButtonsContainer: {
         flexDirection: 'row',
         justifyContent: 'space-evenly', // Space out buttons
@@ -1676,23 +1694,23 @@ const styles = StyleSheet.create({
         marginVertical: 5, // Add vertical space when wrapping
     },
     setButton: {
-        backgroundColor: colors.primary,
+        backgroundColor: COLORS.primary, // Use primary color
         marginRight: 5, // Space between buttons
         marginLeft: 5,
     },
     cancelButton: {
-        backgroundColor: colors.errorRed,
+        backgroundColor: COLORS.error, // Use error color for cancel
         marginRight: 5,
         marginLeft: 5,
     },
     reminderActionButtonText: {
-        color: colors.white,
+        color: COLORS.white, // White text on buttons
         fontWeight: '600',
         fontSize: 14,
     },
     reminderSetText: {
         fontSize: 13,
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text color
         textAlign: 'center',
         marginTop: 10,
         fontStyle: 'italic',
@@ -1705,7 +1723,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0, 0, 0, 0.4)', // Semi-transparent black background
     },
     modalContent: {
-        backgroundColor: colors.cardBackground,
+        backgroundColor: COLORS.cardBackground, // Use card background
         borderRadius: 16,
         padding: 20,
         width: '85%', // Modal width relative to screen
@@ -1716,12 +1734,12 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.25,
         shadowRadius: 4,
-        elevation: 0, // Android shadow
+        elevation: 5, // Android shadow
     },
     modalTitle: {
         fontSize: 18,
         fontWeight: '600',
-        color: colors.textDark,
+        color: COLORS.text, // Use main text color
         marginBottom: 15,
         textAlign: 'center',
     },
@@ -1732,7 +1750,7 @@ const styles = StyleSheet.create({
     modalEntry: {
         marginBottom: 12,
         borderBottomWidth: 1,
-        borderBottomColor: colors.lightBorder,
+        borderBottomColor: COLORS.border, // Use border color
         paddingBottom: 12,
         width: '100%',
     },
@@ -1749,28 +1767,29 @@ const styles = StyleSheet.create({
         flexShrink: 1, // Allow this part to shrink if needed
         marginRight: 10, // Space before timestamp
     },
-    moodDot: {
+    moodDot: { // Used in Modal
         width: 10,
         height: 10,
         borderRadius: 5,
         marginRight: 8,
+        // Background color set dynamically
     },
     modalMoodText: {
         fontSize: 15,
         fontWeight: '500',
-        color: colors.textDark,
+        color: COLORS.text, // Use main text color
         flexShrink: 1, // Allow text to shrink and wrap/ellipsize
     },
     modalTimestampText: {
         fontSize: 12,
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text color
         textAlign: 'right', // Align time to the right
         marginLeft: 'auto', // Push to the far right
         flexShrink: 0, // Prevent timestamp from shrinking
     },
     modalNoteText: {
         fontSize: 14,
-        color: colors.textSecondary,
+        color: COLORS.textSecondary, // Use secondary text color
         marginTop: 4,
         paddingLeft: 18, // Indent note under the mood dot
         width: '100%', // Ensure text wraps correctly
@@ -1778,21 +1797,21 @@ const styles = StyleSheet.create({
     },
     modalNoteTextMuted: {
         fontSize: 14,
-        color: colors.textLight, // Lighter color for placeholder
+        color: COLORS.lightText, // Lighter color for placeholder
         fontStyle: 'italic',
         marginTop: 4,
         paddingLeft: 18, // Indent note under the mood dot
         width: '100%',
     },
     closeButton: {
-        backgroundColor: colors.primary,
+        backgroundColor: COLORS.primary, // Use primary color for button
         paddingVertical: 10,
         paddingHorizontal: 30,
         borderRadius: 20,
         marginTop: 10, // Space above the button
     },
     closeButtonText: {
-        color: colors.white,
+        color: COLORS.white, // White text
         fontWeight: '600',
         fontSize: 15,
     },

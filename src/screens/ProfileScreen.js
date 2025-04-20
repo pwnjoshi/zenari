@@ -1,19 +1,27 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+// screens/ProfileScreen.js
+// FINAL VERSION - Updated Apr 20, 2025
+// - Fetches fullName primarily from Firestore, falls back to Auth.
+// - Saves fullName to both Auth and Firestore.
+// - Includes previous fixes and AI features.
+
+import React, { useState, useEffect, useContext, useMemo, useCallback, useRef } from 'react';
 import {
     View,
     Text,
     StyleSheet,
-    TouchableOpacity,
     ScrollView,
-    Alert,
-    Platform, // Import Platform
-    PermissionsAndroid, // Import PermissionsAndroid
+    Dimensions,
+    TouchableOpacity,
     ActivityIndicator,
+    Modal,
+    Pressable,
+    Alert,
+    Platform,
+    PermissionsAndroid, // Import PermissionsAndroid
     RefreshControl,
     Image,
     TextInput,
     Keyboard,
-    Dimensions, // Import Dimensions
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -119,7 +127,7 @@ const ProfileScreen = ({ navigation }) => {
     const [darkMode, setDarkMode] = useState(false);
     const [notifications, setNotifications] = useState(true);
 
-    // ** State for AI Features (Profile Summary removed) **
+    // ** State for AI Features **
     const [progressInsight, setProgressInsight] = useState(''); // Personalized insight text
     const [achievementSuggestion, setAchievementSuggestion] = useState(null); // Suggested achievement { id, text }
 
@@ -137,7 +145,7 @@ const ProfileScreen = ({ navigation }) => {
              // Re-fetch or clear data if user changes *while screen is mounted*
             if (user && user.uid !== previousUserId) {
                  console.log("[Auth] User changed, forcing data fetch.");
-                fetchData(false, true); // Force fetch for new user
+                 fetchData(false, true); // Force fetch for new user
             } else if (!user && previousUserId) {
                  // Clear user specific state if logged out while screen is focused
                  console.log("[Auth] User logged out, clearing state.");
@@ -152,7 +160,8 @@ const ProfileScreen = ({ navigation }) => {
             }
         });
         return unsubscribe;
-    }, []); // No dependencies needed here, logic is self-contained
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // fetchData is added later via useCallback
 
     // --- Helper Functions ---
 
@@ -169,46 +178,50 @@ const ProfileScreen = ({ navigation }) => {
     const checkAndAwardAchievement = useCallback(async (achievementId) => {
         const userId = currentUserRef.current?.uid; if (!userId) return;
         const definition = achievementDefinitions.find(def => def.id === achievementId); if (!definition) return;
-        const isAlreadyEarnedLocally = achievementsData.find(a => a.id === achievementId)?.earned; if (isAlreadyEarnedLocally) return;
+        // Check local state first to avoid unnecessary Firestore read if already known to be earned
+        const isAlreadyEarnedLocally = achievementsData.find(a => a.id === achievementId)?.earned;
+        if (isAlreadyEarnedLocally) {
+            // console.log(`[Achieve] Already earned locally: ${achievementId}`); // Optional log
+            return;
+        }
 
         console.log(`[Achieve] Checking/Attempting: ${achievementId}`);
         const achievementRef = firestore().doc(`users/${userId}/achievements/${achievementId}`);
         try {
-            const doc = await achievementRef.get({ source: 'server' });
+            const doc = await achievementRef.get({ source: 'server' }); // Ensure we check the server
             if (!doc.exists || !doc.data()?.earned) {
-                await achievementRef.set({ earned: true, earnedAt: firestore.FieldValue.serverTimestamp(), name: definition.name, icon: definition.icon, description: definition.description }, { merge: true });
+                // Award the achievement
+                await achievementRef.set({
+                    earned: true,
+                    earnedAt: firestore.FieldValue.serverTimestamp(),
+                    name: definition.name,
+                    icon: definition.icon,
+                    description: definition.description
+                }, { merge: true });
                 console.log(`[Achieve] Awarded: ${achievementId}`);
+                // Update local state immediately
                 setAchievementsData(prev => prev.map(a => a.id === achievementId ? { ...a, earned: true } : a));
-                Alert.alert("Achievement Unlocked!", definition.name);
+                Alert.alert("🏆 Achievement Unlocked!", definition.name);
             } else {
-                if (!isAlreadyEarnedLocally) {
-                    console.log(`[Achieve] Syncing earned status from server: ${achievementId}`);
-                    setAchievementsData(prev => prev.map(a => a.id === achievementId ? { ...a, earned: true } : a));
-                 }
+                 // If it exists on server but wasn't marked locally, sync local state
+                 console.log(`[Achieve] Syncing earned status from server: ${achievementId}`);
+                 setAchievementsData(prev => prev.map(a => a.id === achievementId ? { ...a, earned: true } : a));
             }
         } catch (error) { console.error(`[Achieve] Error checking/awarding ${achievementId}:`, error); }
-    }, [achievementsData]);
+    }, [achievementsData]); // Dependency on achievementsData to check local state
 
     /** Gets the AsyncStorage key for the user's profile image. */
     const getCurrentImageStorageKey = useCallback(() => { const userId = currentUserRef.current?.uid; if (!userId) return null; return `${LOCAL_IMAGE_STORAGE_KEY_PREFIX}${userId}`; }, []);
 
     /** Creates the profile image directory if it doesn't exist. */
     const ensureProfileImageDirExists = useCallback(async () => {
-        try {
-            const exists = await RNFS.exists(PROFILE_IMAGE_DIR);
-            if (!exists) {
-                await RNFS.mkdir(PROFILE_IMAGE_DIR);
-                console.log('[FS] Profile image directory created.');
-            }
-        } catch (error) {
-            console.error('[FS] Error creating profile image directory:', error);
-        }
+        try { const exists = await RNFS.exists(PROFILE_IMAGE_DIR); if (!exists) { await RNFS.mkdir(PROFILE_IMAGE_DIR); console.log('[FS] Profile image directory created.'); } }
+        catch (error) { console.error('[FS] Error creating profile image directory:', error); }
     }, []);
 
      /** Correctly formats a local path for display in an Image component */
      const formatUriForDisplay = (filePath) => {
          if (!filePath) return null;
-         // Ensure it starts with file://, remove existing if present to avoid duplication
          const pathWithoutPrefix = filePath.startsWith('file://') ? filePath.substring(7) : filePath;
          // Append timestamp for cache busting
          return `file://${pathWithoutPrefix}?t=${Date.now()}`;
@@ -216,87 +229,46 @@ const ProfileScreen = ({ navigation }) => {
 
     /** Loads the profile image URI from local storage. */
     const loadLocalImage = useCallback(async () => {
-        const storageKey = getCurrentImageStorageKey();
-        if (!storageKey) { setLocalImageUri(null); return; }
+        const storageKey = getCurrentImageStorageKey(); if (!storageKey) { setLocalImageUri(null); return; }
         try {
-            const storedUri = await AsyncStorage.getItem(storageKey); // This is just the path
+            const storedUri = await AsyncStorage.getItem(storageKey);
             if (storedUri) {
                 const fileExists = await RNFS.exists(storedUri);
-                if (fileExists) {
-                    console.log('[Profile] Local image path found:', storedUri);
-                    setLocalImageUri(formatUriForDisplay(storedUri)); // Format for display
-                } else {
-                    console.log('[Profile] Stored image path not found on disk, clearing:', storedUri);
-                    await AsyncStorage.removeItem(storageKey);
-                    setLocalImageUri(null);
-                }
-            } else {
-                setLocalImageUri(null);
-            }
-        } catch (error) {
-            console.error("Error loading local image:", error);
-            setLocalImageUri(null);
-        }
+                if (fileExists) { console.log('[Profile] Local image path found:', storedUri); setLocalImageUri(formatUriForDisplay(storedUri)); }
+                else { console.log('[Profile] Stored image path not found, clearing:', storedUri); await AsyncStorage.removeItem(storageKey); setLocalImageUri(null); }
+            } else { setLocalImageUri(null); }
+        } catch (error) { console.error("Error loading local image:", error); setLocalImageUri(null); }
     }, [getCurrentImageStorageKey]);
 
     /** Saves the selected image locally. */
     const saveImageLocally = useCallback(async (sourceUri) => {
-        // sourceUri from image picker might be temporary (e.g., content:// or file://cache)
-        if (!sourceUri) return;
-        const storageKey = getCurrentImageStorageKey();
-        if (!storageKey) return;
+        if (!sourceUri) return; const storageKey = getCurrentImageStorageKey(); if (!storageKey) return;
         setIsPickingImage(true);
-
         try {
             await ensureProfileImageDirExists();
-
             const timestamp = Date.now();
-            // Extract extension more reliably
-             const fileExtensionMatch = sourceUri.match(/\.(jpg|jpeg|png|gif|webp|heic)(\?|$)/i);
-             const fileExtension = fileExtensionMatch ? fileExtensionMatch[1] : 'jpg';
+            const fileExtensionMatch = sourceUri.match(/\.(jpg|jpeg|png|gif|webp|heic)(\?|$)/i);
+            const fileExtension = fileExtensionMatch ? fileExtensionMatch[1] : 'jpg';
             const localFileName = `profile_${currentUserRef.current?.uid}_${timestamp}.${fileExtension}`;
-            const localDestPath = `${PROFILE_IMAGE_DIR}/${localFileName}`; // Permanent storage path
+            const localDestPath = `${PROFILE_IMAGE_DIR}/${localFileName}`;
 
-            // Remove old image file *before* saving new one
             const oldPath = await AsyncStorage.getItem(storageKey);
             if (oldPath && oldPath !== localDestPath) {
-                 try {
-                     if (await RNFS.exists(oldPath)) {
-                         await RNFS.unlink(oldPath);
-                         console.log('[FS] Old profile image deleted:', oldPath);
-                     }
-                 } catch (deleteError) {
-                     console.error('[FS] Error deleting old profile image:', deleteError);
-                 }
+                 try { if (await RNFS.exists(oldPath)) { await RNFS.unlink(oldPath); console.log('[FS] Old image deleted:', oldPath); } }
+                 catch (deleteError) { console.error('[FS] Error deleting old image:', deleteError); }
             }
 
-             // Check if source file exists before copying (RNFS handles different URI schemes)
-             const sourceExists = await RNFS.exists(sourceUri);
-             if (!sourceExists) {
-                 throw new Error(`Source file does not exist: ${sourceUri}`);
-             }
-             console.log(`[FS] Attempting to copy from ${sourceUri} to ${localDestPath}`);
-
-            // Copy the file from picker's temp location to our permanent directory
+            const sourceExists = await RNFS.exists(sourceUri); if (!sourceExists) throw new Error(`Source file does not exist: ${sourceUri}`);
+            console.log(`[FS] Copying from ${sourceUri} to ${localDestPath}`);
             await RNFS.copyFile(sourceUri, localDestPath);
             console.log(`[FS] Copied file to ${localDestPath}`);
 
-            // Save the *permanent path* to AsyncStorage
             await AsyncStorage.setItem(storageKey, localDestPath);
-            // Update state with the *formatted permanent path* for display
-            setLocalImageUri(formatUriForDisplay(localDestPath));
-            console.log('[Profile] Image saved locally and state updated.');
-
+            setLocalImageUri(formatUriForDisplay(localDestPath)); // Update state for immediate display
+            console.log('[Profile] Image saved locally.');
             await checkAndAwardAchievement('firstProfilePic');
-
-        } catch (error) {
-            console.error("Error saving image locally:", error);
-            Alert.alert("Save Error", `Could not save the profile picture. Please try again.\n${error.message}`);
-            // Reset image state if save fails? Optional.
-            // setLocalImageUri(null);
-        } finally {
-            setIsPickingImage(false);
-        }
+        } catch (error) { console.error("Error saving image locally:", error); Alert.alert("Save Error", `Could not save picture. ${error.message}`); }
+        finally { setIsPickingImage(false); }
     }, [getCurrentImageStorageKey, ensureProfileImageDirExists, checkAndAwardAchievement]);
 
     // --- AI Feature Helper Functions ---
@@ -304,14 +276,13 @@ const ProfileScreen = ({ navigation }) => {
     /** Generates a simple personalized insight based on current data. */
     const generateProgressInsight = useCallback((stats, gamification) => {
         if (!stats || !gamification) return "Keep up your mindfulness journey!";
-        const { currentStreak } = stats;
-        const { levelName } = gamification;
+        const { currentStreak } = stats; const { levelName } = gamification;
         if (currentStreak >= 7) return `Amazing consistency! You're on a ${currentStreak}-day streak! Keep focusing on your well-being. 🔥`;
         if (currentStreak >= 3) return `Great job maintaining a ${currentStreak}-day streak! One day at a time makes a big difference.`;
-        if (levelName === "Zen Master") return "You've reached the pinnacle of mindfulness, Zen Master! Continue to inspire yourself and others.";
-        if (levelName === "Centered Tree") return "Like a strong tree, your practice is well-rooted. Keep growing towards the light!";
-        if (levelName === "Focused Sapling") return "Your focus is sharpening! Keep nurturing your practice, consistency is key.";
-        if (levelName === "Calm Sprout") return "You're blossoming beautifully! Keep exploring different mindfulness techniques to find what resonates most.";
+        if (levelName === "Zen Master") return "You've reached the pinnacle of mindfulness, Zen Master! Continue to inspire.";
+        if (levelName === "Centered Tree") return "Like a strong tree, your practice is well-rooted. Keep growing!";
+        if (levelName === "Focused Sapling") return "Your focus is sharpening! Keep nurturing your practice.";
+        if (levelName === "Calm Sprout") return "You're blossoming beautifully! Keep exploring techniques.";
         if (currentStreak > 0) return `You're building momentum with a ${currentStreak}-day streak. Keep it going!`;
         if (stats.sessions > 0) return "Every session counts towards a calmer you. Keep practicing!";
         return "Every mindful moment is a step forward. Keep exploring your journey!";
@@ -320,34 +291,18 @@ const ProfileScreen = ({ navigation }) => {
     /** Generates a suggestion for the next achievable achievement. */
     const generateAchievementSuggestion = useCallback((currentAchievements, stats, gamification) => {
         if (!currentAchievements || !stats || !gamification) return null;
-        const { currentStreak, sessions } = stats;
-        const { points } = gamification;
+        const { currentStreak, sessions } = stats; const { points } = gamification;
         const isEarned = (id) => currentAchievements.find(a => a.id === id)?.earned;
 
         const streakAchievements = achievementDefinitions.filter(a => a.type === 'streak').sort((a, b) => a.value - b.value);
-        for (const ach of streakAchievements) {
-            if (!isEarned(ach.id)) {
-                if (currentStreak === ach.value - 1) return { id: ach.id, text: `Just one more day for the '${ach.name}' achievement!` };
-                return { id: ach.id, text: `Keep your daily practice going to earn the '${ach.name}' (${ach.value} days)!` };
-            }
-        }
+        for (const ach of streakAchievements) { if (!isEarned(ach.id)) { if (currentStreak === ach.value - 1) return { id: ach.id, text: `Just one more day for the '${ach.name}' achievement!` }; return { id: ach.id, text: `Keep your daily practice going for the '${ach.name}' (${ach.value} days)!` }; } }
         const pointsAchievements = achievementDefinitions.filter(a => a.type === 'points').sort((a, b) => a.value - b.value);
-        for (const ach of pointsAchievements) {
-            if (!isEarned(ach.id)) {
-                if (points > ach.value * 0.75 && points < ach.value) return { id: ach.id, text: `You're getting close to ${ach.value} points! Aim for the '${ach.name}' badge!` };
-                return { id: ach.id, text: `Earn points by using the app to reach the '${ach.name}' (${ach.value} points) milestone!` };
-            }
-        }
+        for (const ach of pointsAchievements) { if (!isEarned(ach.id)) { if (points > ach.value * 0.75 && points < ach.value) return { id: ach.id, text: `Close to ${ach.value} points! Aim for the '${ach.name}' badge!` }; return { id: ach.id, text: `Earn points for the '${ach.name}' (${ach.value} points) milestone!` }; } }
         const sessionAch = achievementDefinitions.find(a => a.id === 'sessionMaster10');
-        if (sessionAch && !isEarned(sessionAch.id)) {
-            if (sessions >= sessionAch.value - 3 && sessions < sessionAch.value) return { id: sessionAch.id, text: `Only ${sessionAch.value - sessions} more sessions needed for '${sessionAch.name}'!` };
-            return { id: sessionAch.id, text: `Complete ${sessionAch.value} mindfulness sessions to become a '${sessionAch.name}'!` };
-        }
+        if (sessionAch && !isEarned(sessionAch.id)) { if (sessions >= sessionAch.value - 3 && sessions < sessionAch.value) return { id: sessionAch.id, text: `Only ${sessionAch.value - sessions} more sessions for '${sessionAch.name}'!` }; return { id: sessionAch.id, text: `Complete ${sessionAch.value} sessions for '${sessionAch.name}'!` }; }
         const explorerAch = achievementDefinitions.find(a => a.id === 'explorer');
-        if (explorerAch && !isEarned(explorerAch.id)) {
-            return { id: explorerAch.id, text: "Try out different features like journaling or sound therapy to become a 'Feature Explorer'!" };
-        }
-        return null;
+        if (explorerAch && !isEarned(explorerAch.id)) { return { id: explorerAch.id, text: "Try different features like journaling or sound therapy for 'Feature Explorer'!" }; }
+        return null; // No specific suggestion found
     }, []);
 
     // --- Image Picker Logic ---
@@ -358,123 +313,126 @@ const ProfileScreen = ({ navigation }) => {
         if (response.errorCode) { console.log('ImagePicker Error: ', response.errorMessage); Alert.alert('Image Error', response.errorMessage); return; }
         if (response.assets && response.assets.length > 0) {
             const sourceUri = response.assets[0].uri;
-            if (sourceUri) {
-                await saveImageLocally(sourceUri); // Save and update state
-            } else {
-                 Alert.alert('Error', 'Could not get the image URI.');
-            }
-        } else {
-             console.log('ImagePicker Response: No assets found.');
-        }
-    }, [saveImageLocally]); // Dependency: saveImageLocally
+            if (sourceUri) { await saveImageLocally(sourceUri); } // Save and update state
+            else { Alert.alert('Error', 'Could not get the image URI.'); }
+        } else { console.log('ImagePicker Response: No assets found.'); }
+    }, [saveImageLocally]); // Dependency
 
     const requestPermission = async (permission) => {
         if (Platform.OS === 'android') {
-            try {
-                const granted = await PermissionsAndroid.request(permission);
-                if (granted === PermissionsAndroid.RESULTS.GRANTED) return true;
-                else {
-                    console.log('Permission denied:', permission);
-                    Alert.alert('Permission Denied', 'Cannot proceed without required permission.');
-                    return false;
-                }
-            } catch (err) { console.warn(err); return false; }
-        }
-        return true; // iOS
+            try { const granted = await PermissionsAndroid.request(permission); if (granted === PermissionsAndroid.RESULTS.GRANTED) return true; else { console.log('Permission denied:', permission); Alert.alert('Permission Denied', 'Cannot proceed without required permission.'); return false; } }
+            catch (err) { console.warn(err); return false; }
+        } return true; // iOS permissions handled differently (usually via Info.plist)
     };
 
     const launchCameraWithOptions = useCallback(async () => {
-        const hasPermission = await requestPermission(PermissionsAndroid.PERMISSIONS.CAMERA);
-        if (!hasPermission) return;
-        // setIsPickingImage(true); // Handled in saveImageLocally
+        const hasPermission = await requestPermission(PermissionsAndroid.PERMISSIONS.CAMERA); if (!hasPermission) return;
         launchCamera(imagePickerOptions, handleImagePickerResponse);
     }, [handleImagePickerResponse, imagePickerOptions]);
 
     const launchLibraryWithOptions = useCallback(async () => {
-        const permission = Platform.OS === 'android' && Platform.Version >= 33
-            ? PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES
-            : Platform.OS === 'android' ? PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE : null;
-        if (permission) {
-            const hasPermission = await requestPermission(permission);
-            if (!hasPermission) return;
-        }
-        // setIsPickingImage(true); // Handled in saveImageLocally
+        const permission = Platform.OS === 'android' && Platform.Version >= 33 ? PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES : Platform.OS === 'android' ? PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE : null;
+        if (permission) { const hasPermission = await requestPermission(permission); if (!hasPermission) return; }
         launchImageLibrary(imagePickerOptions, handleImagePickerResponse);
     }, [handleImagePickerResponse, imagePickerOptions]);
 
     const handleChooseImage = useCallback(() => {
         if (isPickingImage) return;
-        Alert.alert(
-            "Select Profile Picture", "Choose source:",
-            [ { text: "Cancel", style: "cancel" }, { text: "Camera", onPress: launchCameraWithOptions }, { text: "Library", onPress: launchLibraryWithOptions }, ],
-            { cancelable: true }
-        );
+        Alert.alert( "Select Profile Picture", "Choose source:", [ { text: "Cancel", style: "cancel" }, { text: "Camera", onPress: launchCameraWithOptions }, { text: "Library", onPress: launchLibraryWithOptions }, ], { cancelable: true } );
     }, [isPickingImage, launchCameraWithOptions, launchLibraryWithOptions]);
 
-    // --- Data Fetching Logic (Main Function) ---
+    // --- Data Fetching Logic (Main Function) --- // <<< UPDATED
     const fetchData = useCallback(async (isRefresh = false, forceFetch = false) => {
-        if (isFetchingData && !isRefresh) { console.log(`[Profile] Fetch skipped: Already fetching.`); return; } // Allow refresh even if fetching
-        if (isFetchingData && isRefresh) { console.log(`[Profile] Note: Refresh triggered while previous fetch in progress.`);} // Log but allow
+        if (isFetchingData && !isRefresh) { console.log(`[Profile] Fetch skipped: Already fetching.`); return; }
+        if (isFetchingData && isRefresh) { console.log(`[Profile] Note: Refresh triggered while fetch in progress.`); }
 
         const currentAuthUser = currentUserRef.current;
         if (!currentAuthUser) { console.log("[Profile] Fetch skipped: No user."); if (isRefreshing) setIsRefreshing(false); return; }
 
         const now = Date.now();
         if (!isRefresh && !forceFetch && (now - lastFetchTimestamp < FETCH_CACHE_DURATION_MS)) {
-            console.log(`[Profile] Fetch skipped: Cache valid. Ensuring UI state.`);
+            console.log(`[Profile] Fetch skipped: Cache valid.`);
+            // Ensure loading states are false even if cache hit
             setIsLoadingUser(false); setIsLoadingGamification(false); setIsLoadingAchievements(false); setIsLoadingStats(false);
-            // Regenerate AI content from existing state
-            setProgressInsight(generateProgressInsight(statsData, gamificationData));
-            setAchievementSuggestion(generateAchievementSuggestion(achievementsData, statsData, gamificationData));
+            // Regenerate AI content from existing state if needed (or rely on state not changing)
+            if (!progressInsight) setProgressInsight(generateProgressInsight(statsData, gamificationData));
+            if (!achievementSuggestion) setAchievementSuggestion(generateAchievementSuggestion(achievementsData, statsData, gamificationData));
             return;
         }
 
         setIsFetchingData(true);
-        if (!isRefresh || lastFetchTimestamp === 0) { // Show loading indicators on first load or manual refresh
+        if (!isRefresh || lastFetchTimestamp === 0) { // Show loading indicators on first load or forced refresh
             setIsLoadingUser(true); setIsLoadingGamification(true); setIsLoadingAchievements(true); setIsLoadingStats(true);
         }
         console.log(`[Profile] Fetching data... (isRefresh: ${isRefresh}, forceFetch: ${forceFetch})`);
         const userId = currentAuthUser.uid;
         const userEmail = currentAuthUser.email || 'No email';
-        const authName = currentAuthUser.displayName || 'User';
+        let authName = currentAuthUser.fullName || 'User'; // Initial name from Auth
 
-        // Update user info from auth object (fastest)
+        // Set initial data quickly from Auth (might be overridden by Firestore)
         setUserData({ name: authName, email: userEmail });
-        setIsLoadingUser(false);
+        setIsLoadingUser(false); // Mark basic user info as loaded
 
         // Load local image in parallel
         loadLocalImage();
 
         let fetchSuccess = false;
-        let fetchedStats = { ...statsData };
+        let fetchedStats = { ...statsData }; // Use current state as default
         let fetchedGamification = { ...gamificationData };
         let fetchedAchievements = [...achievementsData];
 
         try {
+            // Define Firestore references
+            const userDocRef = firestore().doc(`users/${userId}`);
             const gamificationRef = firestore().doc(`users/${userId}/gamification/summary`);
             const achievementsCollectionRef = firestore().collection('users').doc(userId).collection('achievements');
             const statsRef = firestore().doc(`users/${userId}/stats/summary`);
 
+            // Fetch all data in parallel
             const results = await Promise.allSettled([
-                gamificationRef.get(),
-                achievementsCollectionRef.get(),
-                statsRef.get()
+                userDocRef.get(), // Fetch user doc first (index 0)
+                gamificationRef.get(), // Index 1
+                achievementsCollectionRef.get(), // Index 2
+                statsRef.get() // Index 3
             ]);
 
-            // Process results... (same as before)
+            // Process User Document specifically for name
             if (results[0].status === 'fulfilled') {
-                const doc = results[0].value; const points = doc.exists ? doc.data()?.points || 0 : 0;
-                fetchedGamification = { points, ...calculateLevel(points) }; setGamificationData(fetchedGamification);
-            } else { console.error("Gamification fetch failed:", results[0].reason); }
+                const userDoc = results[0].value;
+                if (userDoc.exists && userDoc.data()?.fullName) {
+                    const firestoreName = userDoc.data().fullName;
+                    console.log(`[Profile] Using Firestore name: "${firestoreName}"`);
+                    // Update userData state ONLY if different from current state to avoid unnecessary renders
+                    setUserData(prev => prev.name === firestoreName ? prev : { ...prev, name: firestoreName });
+                } else {
+                    console.log("[Profile] No fullName in Firestore, using Auth name:", authName);
+                    // Ensure state reflects Auth name if Firestore doc exists but lacks the field or doc doesn't exist
+                     setUserData(prev => prev.name === authName ? prev : { ...prev, name: authName });
+                }
+            } else {
+                console.error("[Profile] User doc fetch failed:", results[0].reason);
+                // Keep the Auth name already set in the initial state update
+                 setUserData(prev => prev.name === authName ? prev : { ...prev, name: authName });
+            }
+
+            // Process Gamification (index 1)
             if (results[1].status === 'fulfilled') {
-                const snapshot = results[1].value; const earnedAchievementsMap = new Map();
+                const doc = results[1].value; const points = doc.exists ? doc.data()?.points || 0 : 0;
+                fetchedGamification = { points, ...calculateLevel(points) }; setGamificationData(fetchedGamification);
+            } else { console.error("[Profile] Gamification fetch failed:", results[1].reason); }
+
+            // Process Achievements (index 2)
+            if (results[2].status === 'fulfilled') {
+                const snapshot = results[2].value; const earnedAchievementsMap = new Map();
                 snapshot.docs.forEach(doc => { if (doc.exists && doc.data()?.earned) earnedAchievementsMap.set(doc.id, true); });
                 fetchedAchievements = achievementDefinitions.map(def => ({ ...def, earned: earnedAchievementsMap.has(def.id) })); setAchievementsData(fetchedAchievements);
-            } else { console.error("Achievements fetch failed:", results[1].reason); }
-            if (results[2].status === 'fulfilled') {
-                const doc = results[2].value; const data = doc.exists ? doc.data() : {};
+            } else { console.error("[Profile] Achievements fetch failed:", results[2].reason); }
+
+            // Process Stats (index 3)
+            if (results[3].status === 'fulfilled') {
+                const doc = results[3].value; const data = doc.exists ? doc.data() : {};
                 fetchedStats = { sessions: data.sessions || 0, totalTimeMinutes: data.totalTimeMinutes || 0, currentStreak: data.currentStreak || 0 }; setStatsData(fetchedStats);
-            } else { console.error("Stats fetch failed:", results[2].reason); }
+            } else { console.error("[Profile] Stats fetch failed:", results[3].reason); }
 
             fetchSuccess = true;
 
@@ -493,29 +451,33 @@ const ProfileScreen = ({ navigation }) => {
         }
     }, [
         isFetchingData, isRefreshing, loadLocalImage, lastFetchTimestamp,
-        gamificationData, statsData, achievementsData, // For cache check / regeneration
-        generateProgressInsight, generateAchievementSuggestion, // AI helpers
-        calculateLevel // calculateLevel dependency
+        statsData, gamificationData, achievementsData, // Include for AI regeneration on cache hit
+        generateProgressInsight, generateAchievementSuggestion, calculateLevel, // Helpers
+        checkAndAwardAchievement // Added checkAndAwardAchievement
     ]);
+
+    // Add fetchData to the dependency array of the auth listener effect
+    useEffect(() => {
+        const unsubscribe = auth().onAuthStateChanged(user => {
+            console.log("[Auth] Auth state changed.");
+            const previousUserId = currentUserRef.current?.uid;
+            currentUserRef.current = user;
+            if (user && user.uid !== previousUserId) { console.log("[Auth] User changed, forcing data fetch."); fetchData(false, true); }
+            else if (!user && previousUserId) { console.log("[Auth] User logged out, clearing state."); /* ... clear state ... */ }
+        });
+        return unsubscribe;
+    }, [fetchData]); // Add fetchData here
+
 
     // --- Effect: Fetch Data on Screen Focus (with Caching) ---
      useFocusEffect(useCallback(() => {
-        const focusTime = Date.now();
-        console.log(`[Profile] Screen focused at ${focusTime}. Last fetch: ${lastFetchTimestamp}`);
+        const focusTime = Date.now(); console.log(`[Profile] Screen focused. Last fetch: ${lastFetchTimestamp}`);
         const currentAuthUser = currentUserRef.current;
-
-        if (!currentAuthUser) {
-            console.log("[Profile] Focus: No user logged in. State should be clear from auth listener.");
-             // Ensure loading states are false if somehow left true
-            setIsLoadingUser(false); setIsLoadingGamification(false); setIsLoadingAchievements(false); setIsLoadingStats(false); setIsFetchingData(false);
-            return;
-        }
-
+        if (!currentAuthUser) { console.log("[Profile] Focus: No user."); setIsLoadingUser(false); setIsLoadingGamification(false); setIsLoadingAchievements(false); setIsLoadingStats(false); setIsFetchingData(false); return; }
         if (!isFetchingData) { fetchData(false, false); } // Check cache internally
         else { console.log("[Profile] Focus: Fetch already in progress."); }
-
         return () => { /* console.log("[Profile] Screen blurred."); */ };
-    }, [fetchData, isFetchingData]));
+    }, [fetchData, isFetchingData, lastFetchTimestamp])); // Added lastFetchTimestamp
 
 
     // --- Handler: Pull-to-Refresh ---
@@ -539,13 +501,24 @@ const ProfileScreen = ({ navigation }) => {
         if (!user) { Alert.alert("Error", "You must be logged in to change your name."); setIsSavingName(false); return; }
 
         try {
-            await user.updateProfile({ displayName: newName });
-            await firestore().collection('users').doc(user.uid).set({ displayName: newName, lastUpdated: firestore.FieldValue.serverTimestamp() }, { merge: true });
+            // Update Auth first
+            await user.updateProfile({ fullName: newName });
+            console.log('[Auth] Auth profile fullName updated.');
+
+            // Then update Firestore
+            await firestore().collection('users').doc(user.uid).set({ fullName: newName, lastUpdated: firestore.FieldValue.serverTimestamp() }, { merge: true });
+            console.log('[Firestore] User document fullName updated.');
+
+            // Update local state last
             setUserData(prev => ({ ...prev, name: newName }));
             setIsEditingName(false); setTempName('');
             console.log('[Profile] Name updated successfully.');
             await checkAndAwardAchievement('firstRename');
-        } catch (error) { console.error("Error updating name:", error); Alert.alert("Update Failed", "Could not update your name. Please try again."); }
+        } catch (error) {
+            console.error("Error updating name:", error);
+            // Attempt to rollback Auth update if Firestore fails? (More complex, maybe just alert user)
+            Alert.alert("Update Failed", `Could not update your name fully. Please try again.\nError: ${error.message}`);
+        }
         finally { setIsSavingName(false); }
     }, [tempName, userData.name, checkAndAwardAchievement]);
 
@@ -561,6 +534,7 @@ const ProfileScreen = ({ navigation }) => {
                     if (storageKey) await AsyncStorage.removeItem(storageKey); // Clear image path
                     setLastFetchTimestamp(0); // Reset fetch timestamp
                     console.log('[Auth] Logout successful.');
+                    // Reset navigation to Auth stack (adjust 'Auth' if your stack name is different)
                     navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
                 }
                 catch (error) { console.error("Logout Error: ", error); Alert.alert('Logout Error', error.message); }
@@ -574,18 +548,14 @@ const ProfileScreen = ({ navigation }) => {
         return children;
     };
     const renderAvatar = useCallback(() => {
-        const showEditButton = getCurrentImageStorageKey() !== null;
+        const showEditButton = getCurrentImageStorageKey() !== null; // Only show if user is logged in
         return (
             <View style={styles.avatarContainer}>
                 <LinearGradient colors={[colors.primaryLight, colors.primary]} style={styles.avatarGradient}>
                     {localImageUri ? (
                         <Image key={localImageUri} /* Add key to force update */ source={{ uri: localImageUri, cache: 'reload' }} style={styles.avatarImage} resizeMode="cover" />
-                    ) : (
-                        <Icon name="account" size={40} color={colors.textLight} />
-                    )}
-                    {isPickingImage && (
-                         <View style={styles.avatarLoadingOverlay}><ActivityIndicator size="large" color={colors.textLight} /></View>
-                     )}
+                    ) : ( <Icon name="account" size={40} color={colors.textLight} /> )}
+                    {isPickingImage && ( <View style={styles.avatarLoadingOverlay}><ActivityIndicator size="large" color={colors.textLight} /></View> )}
                 </LinearGradient>
                 {showEditButton && !isPickingImage && (
                     <TouchableOpacity style={styles.editAvatarButton} onPress={handleChooseImage} disabled={isPickingImage}>
@@ -643,10 +613,8 @@ const ProfileScreen = ({ navigation }) => {
 
                             {/* Email */}
                              <Text style={styles.userEmail} numberOfLines={1} ellipsizeMode="tail">
-                                {isLoadingUser && !userData.email ? '' : userData.email}
+                                 {isLoadingUser && userData.email === 'Loading...' ? '' : userData.email}
                              </Text>
-
-                             {/* Profile Summary Text REMOVED from here */}
 
                         </View>
                     </View>
@@ -655,31 +623,29 @@ const ProfileScreen = ({ navigation }) => {
 
                  {/* --- AI Sections --- */}
                  {!isLoadingStats && !isLoadingGamification && progressInsight ? (
-                    <View style={[styles.aiCard, styles.insightCard]}>
-                        <Icon name="lightbulb-on-outline" size={22} color={colors.primaryDark} style={styles.aiIcon} />
-                        {/* Text now includes flex: 1 via aiText style */}
-                        <Text style={styles.aiText}>{progressInsight}</Text>
-                    </View>
+                     <View style={[styles.aiCard, styles.insightCard]}>
+                         <Icon name="lightbulb-on-outline" size={22} color={colors.primaryDark} style={styles.aiIcon} />
+                         <Text style={styles.aiText}>{progressInsight}</Text>
+                     </View>
                  ) : null }
 
                  {!isLoadingAchievements && !isLoadingStats && !isLoadingGamification && achievementSuggestion ? (
-                    <TouchableOpacity
-                        style={[styles.aiCard, styles.suggestionCard]}
-                        onPress={() => {
-                            const achDef = achievementDefinitions.find(a => a.id === achievementSuggestion.id);
-                            if (achDef) { Alert.alert(`Goal: ${achDef.name}`, `${achDef.description}\n\nSuggestion: ${achievementSuggestion.text}`); }
-                            else { Alert.alert('Next Goal Suggestion', achievementSuggestion.text); }
-                        }}
-                        activeOpacity={0.7}
-                    >
-                        <Icon name="target-arrow" size={22} color={colors.gold} style={styles.aiIcon} />
-                        <View style={styles.aiTextContainer}>
-                            <Text style={styles.aiSuggestionTitle}>Next Goal Suggestion:</Text>
-                            {/* Text now includes flex: 1 via aiText style */}
-                            <Text style={styles.aiText}>{achievementSuggestion.text}</Text>
-                        </View>
-                        <Icon name="chevron-right" size={20} color={colors.textSecondary} />
-                    </TouchableOpacity>
+                     <TouchableOpacity
+                         style={[styles.aiCard, styles.suggestionCard]}
+                         onPress={() => {
+                             const achDef = achievementDefinitions.find(a => a.id === achievementSuggestion.id);
+                             if (achDef) { Alert.alert(`Goal: ${achDef.name}`, `${achDef.description}\n\nSuggestion: ${achievementSuggestion.text}`); }
+                             else { Alert.alert('Next Goal Suggestion', achievementSuggestion.text); }
+                         }}
+                         activeOpacity={0.7}
+                     >
+                         <Icon name="target-arrow" size={22} color={colors.gold} style={styles.aiIcon} />
+                         <View style={styles.aiTextContainer}>
+                             <Text style={styles.aiSuggestionTitle}>Next Goal Suggestion:</Text>
+                             <Text style={styles.aiText}>{achievementSuggestion.text}</Text>
+                         </View>
+                         <Icon name="chevron-right" size={20} color={colors.textSecondary} />
+                     </TouchableOpacity>
                  ) : null}
 
 
@@ -783,63 +749,22 @@ const ProfileScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
     container: { flex: 1 },
     scrollContainer: { paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 30, paddingBottom: 40 },
-
-    // --- Profile Header Side-by-Side Styles ---
-    profileHeader: {
-        width: '100%',
-        marginBottom: 25,
-    },
-    profileInfoContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        width: '100%',
-    },
-    avatarContainer: {
-        width: 80, height: 80, borderRadius: 40,
-        shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15, shadowRadius: 8, elevation: 6,
-        position: 'relative', backgroundColor: colors.primaryLight,
-        borderWidth: 2, borderColor: colors.cardBackground, marginRight: 15,
-    },
+    profileHeader: { width: '100%', marginBottom: 25, },
+    profileInfoContainer: { flexDirection: 'row', alignItems: 'center', width: '100%', },
+    avatarContainer: { width: 80, height: 80, borderRadius: 40, shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6, position: 'relative', backgroundColor: colors.primaryLight, borderWidth: 2, borderColor: colors.cardBackground, marginRight: 15, },
     avatarGradient: { flex: 1, borderRadius: 40, justifyContent: 'center', alignItems: 'center' },
     avatarImage: { width: '100%', height: '100%', borderRadius: 40 },
     avatarLoadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 40, justifyContent: 'center', alignItems: 'center' },
-    editAvatarButton: {
-        position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.editIconBackground,
-        padding: 5, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBackground, elevation: 5,
-     },
-    profileTextContainer: {
-        flex: 1, justifyContent: 'center', height: 80, // Match avatar height
-    },
-    nameEditContainer: {
-        flexDirection: 'row', alignItems: 'center', marginBottom: 2, width: '100%',
-    },
-    nameTouchable: {
-         flexShrink: 1, marginRight: 25, // Space for edit button
-    },
-    userName: {
-        fontSize: 22, fontWeight: '700', color: colors.textPrimary, textAlign: 'left',
-    },
-    nameInput: {
-        fontSize: 20, fontWeight: '600', color: colors.textPrimary,
-        borderBottomWidth: 1, borderColor: colors.primary,
-        paddingVertical: Platform.OS === 'ios' ? 6 : 0, paddingHorizontal: 5,
-        textAlign: 'left', flexGrow: 1, marginRight: 5,
-    },
-    editNameButton: {
-        position: 'absolute', right: 0, top: 0, bottom: 0, justifyContent: 'center', paddingLeft: 5,
-    },
+    editAvatarButton: { position: 'absolute', bottom: -2, right: -2, backgroundColor: colors.editIconBackground, padding: 5, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBackground, elevation: 5, },
+    profileTextContainer: { flex: 1, justifyContent: 'center', height: 80, },
+    nameEditContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 2, width: '100%', },
+    nameTouchable: { flexShrink: 1, marginRight: 25, },
+    userName: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, textAlign: 'left', },
+    nameInput: { fontSize: 20, fontWeight: '600', color: colors.textPrimary, borderBottomWidth: 1, borderColor: colors.primary, paddingVertical: Platform.OS === 'ios' ? 6 : 0, paddingHorizontal: 5, textAlign: 'left', flexGrow: 1, marginRight: 5, },
+    editNameButton: { position: 'absolute', right: 0, top: 0, bottom: 0, justifyContent: 'center', paddingLeft: 5, },
     editNameActions: { flexDirection: 'row', alignItems: 'center', },
     saveCancelButton: { padding: 4, marginLeft: 6, },
-    userEmail: {
-        fontSize: 14, color: colors.textSecondary, textAlign: 'left',
-        marginTop: 0, marginBottom: 4, // Adjusted spacing
-        width: '95%',
-    },
-    // profileSummaryText REMOVED
-    // profileSummaryPlaceholder REMOVED
-
-    // --- Other Styles ---
+    userEmail: { fontSize: 14, color: colors.textSecondary, textAlign: 'left', marginTop: 0, marginBottom: 4, width: '95%', },
     card: { backgroundColor: colors.cardBackground, borderRadius: 18, marginBottom: 25, shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 3, borderWidth: Platform.OS === 'android' ? 0 : 1, borderColor: 'rgba(0,0,0,0.05)' },
     pointsCardContainer: { padding: 0, overflow: 'hidden', minHeight: 180, justifyContent: 'center' },
     pointsCardGradient: { padding: 25, alignItems: 'center' },
@@ -871,32 +796,13 @@ const styles = StyleSheet.create({
     statLabel: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
     loadingIndicator: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     loadingContainer: { minHeight: 100, justifyContent: 'center', alignItems: 'center' },
-
-    // --- AI Section Styles ---
-    aiCard: {
-        borderRadius: 15, padding: 15, marginBottom: 20, flexDirection: 'row',
-        alignItems: 'center', // Align icon and text container vertically
-        shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.1, shadowRadius: 8, elevation: 2, borderWidth: 1,
-    },
+    aiCard: { borderRadius: 15, padding: 15, marginBottom: 20, flexDirection: 'row', alignItems: 'center', shadowColor: colors.shadowColor, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 2, borderWidth: 1, },
     insightCard: { backgroundColor: colors.insightBackground, borderColor: colors.insightBorder, },
     suggestionCard: { backgroundColor: colors.suggestionBackground, borderColor: colors.suggestionBorder, },
-    aiIcon: {
-        marginRight: 12,
-        alignSelf: 'flex-start', // Keep icon at the top if text wraps multiple lines
-        marginTop: 2,
-    },
-    aiTextContainer: { // Used in Suggestion Card
-        flex: 1, // Takes remaining space in suggestion card
-        marginRight: 8,
-    },
+    aiIcon: { marginRight: 12, alignSelf: 'flex-start', marginTop: 2, },
+    aiTextContainer: { flex: 1, marginRight: 8, },
     aiSuggestionTitle: { fontWeight: '600', color: colors.textPrimary, fontSize: 14, marginBottom: 3, },
-    aiText: {
-        flex: 1, // *** ADDED flex: 1 HERE *** Allows text to take available space and wrap
-        fontSize: 14,
-        color: colors.textPrimary,
-        lineHeight: 20,
-    },
+    aiText: { flex: 1, fontSize: 14, color: colors.textPrimary, lineHeight: 20, },
 });
 
 export default ProfileScreen;
