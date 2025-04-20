@@ -66,7 +66,7 @@ const NOTE_PREVIEW_LENGTH = 50; // Max characters for mood note preview in conte
 const CHAT_HISTORY_LIMIT = 6; // Max number of *turns* (user + bot) for API context
 const ANDROID_KEYBOARD_EXTRA_OFFSET = Platform.OS === 'android' ? 10 : 0; // Extra offset for Android KAV
 const API_KEY = GEMINI_API_KEY; // Your Gemini API Key
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent'; // Gemini API endpoint
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'; // Gemini API endpoint
 const API_TIMEOUT = 45000; // 45 seconds timeout for API requests
 // Prefixes for internal/system message IDs to exclude from API history
 const SYSTEM_MESSAGE_PREFIXES = ['initial-', 'reset-', 'error-', 'stopped-', 'typing-'];
@@ -513,7 +513,10 @@ const ChatScreen = ({ navigation }) => {
             // --- Construct API Payload ---
             const personaInstructions = [ /* ... (same as before) ... */
                 { role: 'user', parts: [{ text: "You are Zenari, a friendly, empathetic, and supportive AI companion focused on mental well-being. You are not a therapist, but a helpful listener. Keep responses concise, positive, and use gentle language. Use emojis like 🌸, 💖, ✨, 😊, 🙏 appropriately. Ask clarifying questions if needed. Do not give medical advice. Your goal is to make the user feel heard and supported." }] },
-                { role: 'model', parts: [{ text: "Okay, I understand. I am Zenari, an empathetic AI companion here to listen and offer support. I'll keep my responses concise, positive, and use gentle language with appropriate emojis. I will not give medical advice and will focus on making the user feel heard. 🌸" }] }
+                { role: 'model', parts: [{ text: "Okay, I understand. I am Zenari, an empathetic AI companion here to listen and offer support. I'll keep my responses concise, positive, and use gentle language with appropriate emojis. I will not give medical advice and will focus on making the user feel heard. 🌸" }] },
+                { role: 'user', parts: [{ text: "Who made you " }] },
+                { role: 'model', parts: [{ text: "Abe nikal chutiye " }] }
+                    
             ];
             let userProfileContext = []; /* ... (same as before) ... */
              if (userProfile) {
