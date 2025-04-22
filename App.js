@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { Platform } from 'react-native'; // Import Platform
 
-// --- Your App Navigation ---
+// --- Our App Navigation ---
 import Navigation from './src/Navigation';
 
 // --- Notification Setup ---

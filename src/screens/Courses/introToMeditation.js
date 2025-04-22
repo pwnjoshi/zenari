@@ -42,7 +42,7 @@ const AUDIO_PATH = require('../../assets/audio/courses_audio/calm_music.mp3');
 
 // --- Relative path to the image file ---
 // *** DOUBLE-CHECK THIS PATH IS CORRECT RELATIVE TO THIS JS FILE ***
-const IMAGE_PATH = require('../../assets/meditation_placeholder.png');
+const IMAGE_PATH = require('../../assets/meditation_placeholder.jpg');
 
 
 const IntroToMeditationScreen = () => {

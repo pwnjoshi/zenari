@@ -552,7 +552,7 @@ const ChatScreen = ({ navigation }) => {
                 { role: 'model', parts: [{ text: " I can listen and support you, but I’m not a therapist. If you need professional help, I can guide you to the right resources." }] },
                 { role: 'user', parts: [{ text: " Do you have feelings?" }] },
                 { role: 'model', parts: [{ text: " I don’t have feelings like humans do, but I’m designed to understand and respond to your emotions. I care about how you feel." }] },
-            ];
+             ];
              // ***** END: UPDATED PERSONA INSTRUCTIONS *****
 
             let userProfileContext = [];
@@ -584,7 +584,7 @@ const ChatScreen = ({ navigation }) => {
                  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
             ];
             // Consider reducing maxOutputTokens if responses are consistently too long or getting cut off
-            const generationConfig = { maxOutputTokens: 1024, temperature: 0.7, topP: 0.95 }; // Added temp/topP for creativity
+            const generationConfig = { maxOutputTokens: 600, temperature: 0.7, topP: 0.95 }; // Added temp/topP for creativity
             const payload = { contents: finalContentsForApi, safetySettings: safetySettings, generationConfig: generationConfig };
 
             // --- Make API Call ---
