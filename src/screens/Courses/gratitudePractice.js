@@ -38,11 +38,11 @@ const colors = {
 
 // --- Relative path to the audio file from this component ---
 // *** DOUBLE-CHECK THIS PATH IS CORRECT RELATIVE TO THIS JS FILE ***
-const AUDIO_PATH = require('../../assets/audio/courses_audio/calm_music.mp3');
+const AUDIO_PATH = require('../../assets/audio/courses_audio/gratitude.mp3');
 
 // --- Relative path to the image file ---
 // *** DOUBLE-CHECK THIS PATH IS CORRECT RELATIVE TO THIS JS FILE ***
-const IMAGE_PATH = require('../../assets/meditation_placeholder.jpg');
+const IMAGE_PATH = require('../../assets/gratitude.jpeg');
 
 
 const IntroToMeditationScreen = () => {

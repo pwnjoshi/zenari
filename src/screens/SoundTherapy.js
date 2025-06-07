@@ -173,68 +173,85 @@ class SoundTherapy extends React.Component {
 
     // --- Playback Controls ---
     // Handles selecting and playing a sound
-    playSound = (soundOption) => {
-        console.log('[SoundTherapy] playSound called for:', soundOption.title);
-        if (this.state.isLoadingSound) {
-            console.log("[SoundTherapy] Already loading a sound, ignoring request.");
-            return; // Prevent multiple loads
+    // --- Playback Controls ---
+// Handles selecting and playing a sound
+playSound = (soundOption) => {
+    console.log('[SoundTherapy] playSound called for:', soundOption.title);
+    if (this.state.isLoadingSound) {
+        console.log("[SoundTherapy] Already loading a sound, ignoring request.");
+        return; // Prevent multiple loads
+    }
+    // If another sound is already playing, stop it first
+    if (this.soundRef) {
+        console.log("[SoundTherapy] Stopping previous sound before playing new one.");
+        this.handleStop(); // Stop and clean up previous sound
+    }
+
+    // Set loading state and current sound immediately
+    this.setState({ isLoadingSound: true, progress: 0, duration: 0, currentSound: soundOption, isPlaying: false });
+
+    // Attempt gamification update (can happen while loading)
+    this.updateGamificationData();
+
+    console.log('[SoundTherapy] Loading sound from source:', soundOption.source);
+    const newSound = new Sound(soundOption.source, (error) => {
+        // Loading finished callback
+        this.setState({ isLoadingSound: false }); // Loading is done, regardless of error
+
+        if (error) {
+            console.error('[SoundTherapy] Failed to load sound:', error);
+            Alert.alert("Error", `Failed to load audio: ${error.message}`);
+            this.setState({ currentSound: null }); // Reset current sound if loading failed
+            return;
         }
-        // If another sound is already playing, stop it first
-        if (this.soundRef) {
-            console.log("[SoundTherapy] Stopping previous sound before playing new one.");
-            this.handleStop(); // Stop and clean up previous sound
+
+        // --- 💡 DIAGNOSTIC & VALIDATION ---
+        const duration = newSound.getDuration();
+        console.log(`[SoundTherapy] Sound loaded. Duration: ${duration} seconds.`);
+
+        // If duration is 0 or -1, the file path is likely wrong or the file is corrupt.
+        if (duration <= 0) {
+            Alert.alert(
+                "Audio Error",
+                "The sound file could not be prepared for playback. Please verify the asset path and file integrity."
+            );
+            this.setState({ currentSound: null });
+            newSound.release(); // Clean up the failed sound instance
+            return;
         }
 
-        // Set loading state and current sound immediately
-        this.setState({ isLoadingSound: true, progress: 0, duration: 0, currentSound: soundOption, isPlaying: false });
+        // --- Sound loaded successfully ---
+        this.soundRef = newSound; // Store reference
+        this.sessionStartTime = Date.now(); // Record start time
+        this.setState({ duration: duration * 1000 }); // Update state with duration
 
-        // Attempt gamification update (can happen while loading)
-        this.updateGamificationData();
+        newSound.setVolume(1);
+        newSound.setNumberOfLoops(-1); // Loop indefinitely
 
-        console.log('[SoundTherapy] Loading sound from source:', soundOption.source);
-        const newSound = new Sound(soundOption.source, (error) => {
-            // Loading finished callback
-            this.setState({ isLoadingSound: false }); // Loading is done, regardless of error
+        // --- ✅ THE FIX ---
+        // Introduce a short delay to allow the native audio player to initialize.
+        setTimeout(() => {
+            // Check if the component is still trying to play this sound
+            if (this.soundRef && this.state.currentSound?.id === soundOption.id) {
+                newSound.play((success) => {
+                    if (!success) {
+                        console.error('[SoundTherapy] Playback failed unexpectedly.');
+                        // Only show an alert if the app was still in a playing state
+                        if(this.state.isPlaying) {
+                           Alert.alert("Playback Error", "The selected sound failed to play.");
+                        }
+                    }
+                    // This callback might fire if stopped manually, so we clean up.
+                    this.handleStop();
+                });
 
-            if (error) {
-                console.error('[SoundTherapy] Failed to load sound:', error);
-                Alert.alert("Error", `Failed to load audio: ${error.message}`);
-                this.setState({ currentSound: null }); // Reset current sound if loading failed
-                return;
+                // Update state to reflect that playback has started
+                this.setState({ isPlaying: true });
+                this.startProgressTimer(); // Start updating the progress bar
             }
-
-            // Sound loaded successfully
-            console.log('[SoundTherapy] Sound loaded. Duration:', newSound.getDuration());
-            this.soundRef = newSound; // Store reference
-            const durationMs = newSound.getDuration() * 1000; // Get duration in ms
-            this.sessionStartTime = Date.now(); // Record start time
-
-            // Update state with duration
-            this.setState({ duration: durationMs > 0 ? durationMs : 0 }); // Ensure duration is non-negative
-
-            newSound.setVolume(1); // Set volume
-            newSound.setNumberOfLoops(-1); // Loop indefinitely
-
-            // Play the sound
-            newSound.play((success) => {
-                // This callback executes when playback *finishes* (or fails to play)
-                // Since we loop indefinitely, this theoretically only runs on failure now.
-                if (success) {
-                    console.log('[SoundTherapy] Playback finished successfully (unexpected for looping sound).');
-                } else {
-                    console.error('[SoundTherapy] Playback failed.');
-                    Alert.alert("Playback Error", "Could not play the selected sound.");
-                }
-                 // Stop and clean up state regardless of success/failure in this callback
-                 // This might be redundant if handleStop is called elsewhere, but safe.
-                this.handleStop();
-            });
-
-            // Update state to reflect playback started
-            this.setState({ isPlaying: true });
-            this.startProgressTimer(); // Start updating the progress bar
-        });
-    };
+        }, 500); // 100ms delay is usually sufficient
+    });
+};
 
     // Handles stopping the currently playing sound
     handleStop = () => {

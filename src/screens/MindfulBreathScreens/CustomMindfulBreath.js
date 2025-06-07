@@ -355,7 +355,7 @@ const styles = StyleSheet.create({
     sliderContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     settingValue: { fontSize: 14, color: '#94A3B8', minWidth: 25, textAlign: 'right' },
     slider: { flex: 1, height: 40 },
-    shadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 8 },
+    shadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 0 },
 });
 
 export default MindfulBreath;

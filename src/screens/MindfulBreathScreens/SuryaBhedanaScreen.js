@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
     },
     mainButton: { borderRadius: 40, width: 80, height: 80, justifyContent: 'center', alignItems: 'center' },
     gradient: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center' },
-    shadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.35, shadowRadius: 7, elevation: 10 }, // Slightly stronger shadow
+    shadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.35, shadowRadius: 7, elevation: 0 }, // Slightly stronger shadow
 });
 
 export default SuryaBhedanaScreen;

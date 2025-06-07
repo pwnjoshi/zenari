@@ -449,7 +449,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3, // Slightly more opacity
         shadowRadius: 4,
-        elevation: 8, // Standard elevation for Android
+        elevation: 0, // Standard elevation for Android
     },
 });
 

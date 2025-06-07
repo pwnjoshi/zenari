@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
     // iconButton style removed as it's replaced by headerButton or no longer needed
     gradient: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center' },
     // Settings Panel Styles Removed: settingsPanel, backdrop, settingItem, settingsTitle, settingHeader, settingLabel, sliderContainer, settingValue, slider
-    shadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 8 },
+    shadow: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 0 },
 });
 
 export default NadiShodhanaScreen;
