@@ -21,7 +21,7 @@ import RNFS from 'react-native-fs';
 
 // --- Configuration ---
 // IMPORTANT: Use environment variables for API keys in a real app.
-const GOOGLE_API_KEY = 'AIzaSyCFn0v-9w8a-FTNyudXcPRJDLhSh9LVdWI'; // Replace with your actual key
+const GOOGLE_API_KEY = ' '; // Replace with your actual key
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GOOGLE_API_KEY}`;
 const TTS_API_ENDPOINT = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_API_KEY}`;
